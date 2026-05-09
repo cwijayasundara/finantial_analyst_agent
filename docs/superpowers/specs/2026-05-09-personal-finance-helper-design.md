@@ -529,6 +529,7 @@ personal_finance_helper/
 - **Watch mode in v1?** `watchdog`-based filesystem observer is cheap; ship in P1 if time permits, else punt to V2.
 - **MCP server wrapper.** Expose cookbook tools as a local MCP server later for IDE/Claude Desktop integration. Not v1.
 - **Multi-currency handling.** Punt to v2 (`fx-multi-currency` cookbook). v1 assumes single currency per account.
+- **Optional Neo4j-in-Docker sidecar.** Kuzu is the runtime graph store (embedded, fits the no-daemon ethos, validated in `context_graphs`). For occasional visual exploration of the graph (debugging ontology widening, tracing fund-flow chains), ship a `cookbooks/_shared/export_neo4j.py` that spins up a Neo4j container, imports `kuzu.db` via Cypher script, and opens `localhost:7474`. Sidecar only — never a runtime dependency.
 
 ## 14. References
 
