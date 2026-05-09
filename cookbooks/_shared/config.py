@@ -1,0 +1,100 @@
+"""Typed settings loader. Privacy-critical: rejects remote Ollama URLs."""
+from __future__ import annotations
+
+from pathlib import Path
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+class Paths(BaseModel):
+    sources: Path
+    parsed: Path
+    data: Path
+    wiki: Path
+    graph: Path
+    out: Path
+
+    @property
+    def ledger_db(self) -> Path:
+        return self.data / "ledger.duckdb"
+
+    @property
+    def kuzu_db(self) -> Path:
+        return self.graph / "kuzu.db"
+
+    @property
+    def graph_snapshot(self) -> Path:
+        return self.graph / "snapshots" / "graph.jsonl"
+
+    @property
+    def audit_log(self) -> Path:
+        return self.graph / "audit.jsonl"
+
+    @property
+    def rules_yaml(self) -> Path:
+        return self.data / "rules.yaml"
+
+
+class LLMConfig(BaseModel):
+    model: str = "ollama:gemma4:e4b"
+    embed_model: str = "ollama:nomic-embed-text"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+
+    @field_validator("ollama_base_url")
+    @classmethod
+    def _must_be_loopback(cls, v: str) -> str:
+        host = urlparse(v).hostname or ""
+        if host not in LOOPBACK_HOSTS:
+            raise ValueError(
+                f"OLLAMA_BASE_URL must be loopback (got host {host!r}); "
+                "remote endpoints violate the privacy thesis."
+            )
+        return v
+
+
+class IngestConfig(BaseModel):
+    parser_chain: list[str] = Field(default_factory=lambda: ["docling", "markitdown"])
+    completeness_warn_only: bool = True
+    recurring_min_occurrences: int = 3
+    recurring_amount_tolerance_pct: float = 5.0
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="PFH_",
+        env_nested_delimiter="__",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    paths: Paths
+    llm: LLMConfig = Field(default_factory=LLMConfig)
+    ingest: IngestConfig = Field(default_factory=IngestConfig)
+
+
+def load_settings() -> Settings:
+    """Read environment variables and return validated settings.
+
+    Resolves paths against env vars set by `tmp_workspace` in tests or by
+    real `.env` in production. Raises if OLLAMA_BASE_URL is non-loopback.
+    """
+    import os
+
+    paths = Paths(
+        sources=Path(os.environ.get("PFH_SOURCES_DIR", "./sources")),
+        parsed=Path(os.environ.get("PFH_PARSED_DIR", "./parsed")),
+        data=Path(os.environ.get("PFH_DATA_DIR", "./data")),
+        wiki=Path(os.environ.get("PFH_WIKI_DIR", "./wiki")),
+        graph=Path(os.environ.get("PFH_GRAPH_DIR", "./graph")),
+        out=Path(os.environ.get("PFH_OUT_DIR", "./out")),
+    )
+    llm = LLMConfig(
+        model=os.environ.get("PFH_LLM_MODEL", "ollama:gemma4:e4b"),
+        embed_model=os.environ.get("PFH_EMBED_MODEL", "ollama:nomic-embed-text"),
+        ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+    )
+    return Settings(paths=paths, llm=llm)
