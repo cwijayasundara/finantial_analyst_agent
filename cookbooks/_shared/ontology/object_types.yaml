@@ -1,0 +1,19 @@
+# Object Types — node classes in the typed graph.
+- id: Account
+  description: A bank or credit-card account.
+- id: Statement
+  description: One source PDF for a billing/statement period.
+- id: Transaction
+  description: One ledger row; projected from DuckDB at compile time.
+- id: Merchant
+  description: Canonical merchant entity with surface-form aliases.
+- id: Category
+  description: Hierarchical spending category.
+- id: Subscription
+  description: Detected recurring payment to a merchant.
+- id: Memo
+  description: Monthly analyst-produced summary.
+- id: Decision
+  description: Audited advisor recommendation.
+- id: Annotation
+  description: Manual user note attached to a transaction.

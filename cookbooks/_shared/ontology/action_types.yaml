@@ -1,0 +1,30 @@
+# Action Types — governed write verbs. Every invocation writes audit.jsonl
+# plus a typed Decision page (handled centrally by ontology/functions/actions.py).
+- id: upsert_merchant
+  description: Create or update a Merchant wiki page.
+  function: cookbooks._shared.ontology.functions.actions:upsert_merchant
+  scopes: [system, ingester]
+- id: upsert_statement
+  description: Create or update a Statement wiki page.
+  function: cookbooks._shared.ontology.functions.actions:upsert_statement
+  scopes: [system, ingester]
+- id: upsert_subscription
+  description: Confirm a recurring subscription.
+  function: cookbooks._shared.ontology.functions.actions:upsert_subscription
+  scopes: [system, ingester]
+- id: merge_merchant_aliases
+  description: Merge surface-form aliases into a canonical merchant.
+  function: cookbooks._shared.ontology.functions.actions:merge_merchant_aliases
+  scopes: [system, ingester, analyst]
+- id: publish_monthly_memo
+  description: Publish a monthly memo. Writer-only.
+  function: cookbooks._shared.ontology.functions.actions:publish_monthly_memo
+  scopes: [analyst]
+- id: publish_recommendation
+  description: Publish a recommendation. Writer-only.
+  function: cookbooks._shared.ontology.functions.actions:publish_recommendation
+  scopes: [advisor]
+- id: flag_concept_review
+  description: Queue a concept for human review.
+  function: cookbooks._shared.ontology.functions.actions:flag_concept_review
+  scopes: [analyst, advisor]

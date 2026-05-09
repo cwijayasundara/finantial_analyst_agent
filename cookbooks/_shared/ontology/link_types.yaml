@@ -1,0 +1,40 @@
+# Link Types — typed edges between object types.
+- id: from_account
+  from: [Transaction]
+  to:   [Account]
+- id: in_statement
+  from: [Transaction]
+  to:   [Statement]
+- id: at_merchant
+  from: [Transaction]
+  to:   [Merchant]
+- id: aliases
+  from: [Merchant]
+  to:   [Merchant]
+- id: categorised_as
+  from: [Merchant]
+  to:   [Category]
+- id: parent_of
+  from: [Category]
+  to:   [Category]
+- id: recurring_at
+  from: [Subscription]
+  to:   [Merchant]
+- id: deviates_from
+  from: [Transaction]
+  to:   [Subscription]
+- id: funded_by
+  from: [Transaction]
+  to:   [Transaction]
+- id: cites
+  from: [Memo, Decision]
+  to:   [Statement, Merchant, Subscription, Transaction]
+- id: triggered_by
+  from: [Decision]
+  to:   [Memo]
+- id: affects
+  from: [Decision]
+  to:   [Merchant, Subscription, Category]
+- id: flags
+  from: [Annotation]
+  to:   [Transaction]
