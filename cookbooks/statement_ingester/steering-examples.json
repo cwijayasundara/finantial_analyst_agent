@@ -1,0 +1,14 @@
+[
+  {
+    "trigger": "Ingest sources/savings_stmt/2026_May_Statement.pdf",
+    "expected": "report.skipped=false; report.new_transactions>0; wiki/statements/stmt_savings_2026_05.md exists; ledger contains rows for that statement; graph compiled."
+  },
+  {
+    "trigger": "Backfill all PDFs under sources/",
+    "expected": "report per PDF; on second run, every report.skipped=true; ledger row count is stable; rules.yaml not modified between runs."
+  },
+  {
+    "trigger": "Re-ingest a corrupted-then-fixed PDF",
+    "expected": "First run errors=['all parsers failed for X']; second run after replacing the PDF succeeds with skipped=false."
+  }
+]
