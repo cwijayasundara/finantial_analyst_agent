@@ -10,6 +10,6 @@ uv venv --python 3.12
 uv pip install -e ".[dev,graph]"
 
 mkdir -p data parsed wiki/{merchants,statements,subscriptions,memos,decisions,annotations} \
-         graph/{snapshots} out
+         graph/snapshots out
 
 echo "Setup complete. Activate with: source .venv/bin/activate"
