@@ -6,19 +6,16 @@ from langchain_ollama import ChatOllama
 
 from cookbooks._shared.config import load_settings
 
-# Providers we recognise as syntactically valid prefixes. Only `ollama` is
-# permitted at runtime; the others exist so we can produce a clean policy
-# error (vs. a parse error) when someone tries them.
-_KNOWN_PROVIDERS = frozenset({"ollama", "anthropic", "openai", "google", "azure", "bedrock", "cohere"})
-
 
 def parse_model_id(model_id: str) -> tuple[str, str]:
     """Split a `provider:name[:tag]` string into (provider, name)."""
-    provider, sep, name = model_id.partition(":")
-    if not sep or not name or provider not in _KNOWN_PROVIDERS:
+    if ":" not in model_id:
         raise ValueError(
             f"Model id {model_id!r} must be 'provider:model' (e.g. 'ollama:gemma4:e4b')."
         )
+    provider, _, name = model_id.partition(":")
+    if not name:
+        raise ValueError(f"Empty model name in {model_id!r}.")
     return provider, name
 
 

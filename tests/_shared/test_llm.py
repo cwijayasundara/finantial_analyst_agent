@@ -16,7 +16,7 @@ def test_parse_model_id_provider_and_name():
 
 def test_parse_model_id_rejects_missing_provider():
     with pytest.raises(ValueError, match="provider:model"):
-        parse_model_id("gemma4:e4b")
+        parse_model_id("gemma4")
 
 
 def test_build_chat_model_uses_settings(tmp_workspace: Path):
