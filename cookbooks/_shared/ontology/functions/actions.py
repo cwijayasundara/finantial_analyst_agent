@@ -131,13 +131,63 @@ def upsert_merchant(
         else:
             cat_id = cat_row[0]
 
-        conn.execute(
-            "INSERT INTO merchants(id,canonical_name,category_id,aliases) "
-            "VALUES (?,?,?,?) ON CONFLICT (id) DO UPDATE SET "
-            "canonical_name=excluded.canonical_name, "
-            "category_id=excluded.category_id, aliases=excluded.aliases",
-            [merchant_id, canonical_name, cat_id, json.dumps(aliases)],
-        )
+        # Use SELECT-then-INSERT/UPDATE rather than ON CONFLICT DO UPDATE
+        # because DuckDB raises a FK constraint error whenever an UPDATE
+        # touches a row already referenced by another table — a known
+        # limitation that hits us once transactions.merchant_id points at
+        # this row. To stay correct under that constraint we:
+        #   1. INSERT when the merchant_id is brand-new.
+        #   2. Merge aliases into the existing row's alias list if any new
+        #      ones appear AND the row is not yet referenced.
+        #   3. Once the row is referenced, leave canonical_name/category
+        #      pinned (first write wins) and skip the UPDATE so we don't
+        #      hit the FK ceiling.
+        existing = conn.execute(
+            "SELECT canonical_name, category_id, COALESCE(aliases,'[]') "
+            "FROM merchants WHERE id=?", [merchant_id]
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO merchants(id,canonical_name,category_id,aliases) "
+                "VALUES (?,?,?,?)",
+                [merchant_id, canonical_name, cat_id, json.dumps(aliases)],
+            )
+        else:
+            referenced = conn.execute(
+                "SELECT 1 FROM transactions WHERE merchant_id=? LIMIT 1",
+                [merchant_id],
+            ).fetchone() is not None
+            try:
+                cur_aliases = (
+                    json.loads(existing[2])
+                    if isinstance(existing[2], str)
+                    else (existing[2] or [])
+                )
+            except (json.JSONDecodeError, TypeError):
+                cur_aliases = []
+            merged_aliases = list(dict.fromkeys([*cur_aliases, *aliases]))
+            same = (
+                existing[0] == canonical_name
+                and existing[1] == cat_id
+                and merged_aliases == cur_aliases
+            )
+            if same:
+                # Nothing to do; preserves audit-log noise minimisation too.
+                pass
+            elif referenced:
+                # First-write-wins on canonical_name + category; only the
+                # alias list can grow. UPDATE-aliases would still trip the
+                # FK error, so we skip the SQL write — the wiki page below
+                # still gets refreshed with the latest alias merge.
+                aliases = merged_aliases
+            else:
+                conn.execute(
+                    "UPDATE merchants SET canonical_name=?, category_id=?, "
+                    "aliases=? WHERE id=?",
+                    [canonical_name, cat_id, json.dumps(merged_aliases),
+                     merchant_id],
+                )
+                aliases = merged_aliases
     finally:
         conn.close()
 

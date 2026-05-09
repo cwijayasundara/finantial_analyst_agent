@@ -5,6 +5,7 @@ from typing import Literal, TypedDict
 
 from cookbooks.statement_ingester.schemas import (
     CategorisationResult,
+    IngestReport,
     SubscriptionCandidate,
     Transaction,
 )
@@ -24,5 +25,7 @@ class IngestState(TypedDict, total=False):
     categorised: list[CategorisationResult]
     recurring_detected: list[SubscriptionCandidate]
     graph_compiled: bool
+    graph_result: dict
     errors: list[str]
     skipped_reason: str | None
+    report: IngestReport

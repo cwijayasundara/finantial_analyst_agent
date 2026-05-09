@@ -116,6 +116,18 @@ _ROW = re.compile(
     re.MULTILINE,
 )
 
+# Whitespace-delimited fallback for parsers (e.g. Docling on text-only PDFs)
+# that emit rows as "<date> <description...> <amount> <balance>" without pipes.
+# Description is greedy-but-non-greedy until the LAST trailing
+# "<amount>  <balance>" pair on the row.
+_ROW_WS = re.compile(
+    r"(?P<date>\d{4}-\d{2}-\d{2})\s+"
+    r"(?P<desc>.+?)\s{2,}"
+    r"(?P<amount>-?\(?[£$]?\d[\d,]*\.\d{2}\)?)"
+    r"\s{2,}"
+    r"(?P<balance>-?\(?[£$]?\d[\d,]*\.\d{2}\)?)"
+)
+
 
 def _normalise_amount(raw: str) -> Decimal:
     s = raw.strip().replace("£", "").replace("$", "").replace(",", "")
@@ -128,7 +140,11 @@ def parse_md_to_transactions(
     md: str, *, account_id: str, statement_id: str,
     sign_convention: Literal["bank", "credit"],
 ) -> Iterable[Transaction]:
-    for m in _ROW.finditer(md):
+    matches = list(_ROW.finditer(md))
+    if not matches:
+        # Fallback for whitespace-delimited rows (Docling text-PDF output).
+        matches = list(_ROW_WS.finditer(md))
+    for m in matches:
         d = date.fromisoformat(m.group("date"))
         desc = m.group("desc").strip()
         amount = _normalise_amount(m.group("amount"))
