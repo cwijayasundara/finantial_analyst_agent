@@ -1,0 +1,24 @@
+llm:
+  model: ${PFH_LLM_MODEL:-ollama:gemma4:e4b}
+  embed_model: ${PFH_EMBED_MODEL:-ollama:nomic-embed-text}
+  ollama_base_url: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
+
+paths:
+  sources: ${PFH_SOURCES_DIR:-./sources}
+  parsed:  ${PFH_PARSED_DIR:-./parsed}
+  data:    ${PFH_DATA_DIR:-./data}
+  wiki:    ${PFH_WIKI_DIR:-./wiki}
+  graph:   ${PFH_GRAPH_DIR:-./graph}
+  out:     ${PFH_OUT_DIR:-./out}
+
+ingest:
+  parser_chain: ["docling", "markitdown"]
+  completeness_warn_only: true
+  recurring_min_occurrences: 3
+  recurring_amount_tolerance_pct: 5.0
+
+middleware:
+  model_call_limit: 50
+  tool_call_limit: 200
+  retry_max: 3
+  retry_backoff: 2.0
