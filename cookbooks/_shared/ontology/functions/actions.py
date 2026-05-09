@@ -176,14 +176,44 @@ def upsert_subscription(
     init_schema()
     conn = connect_readwrite()
     try:
-        conn.execute(
-            "INSERT INTO patterns(id,merchant_id,cadence,expected_amount,last_seen,confidence)"
-            " VALUES (?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET "
-            "merchant_id=excluded.merchant_id, cadence=excluded.cadence, "
-            "expected_amount=excluded.expected_amount, last_seen=excluded.last_seen, "
-            "confidence=excluded.confidence",
-            [subscription_id, merchant_id, cadence, expected_amount, last_seen, confidence],
-        )
+        # DuckDB rejects any write touching a PK row that is still referenced
+        # by a FK (e.g. transactions.pattern_id) — even an UPDATE on non-PK
+        # columns. To stay idempotent, we read the existing row and skip the
+        # UPDATE when the values are identical; otherwise we null out the
+        # referencing FKs, update the row, and re-link.
+        existing = conn.execute(
+            "SELECT merchant_id, cadence, expected_amount, last_seen, "
+            "confidence FROM patterns WHERE id=?", [subscription_id]
+        ).fetchone()
+        if existing is None:
+            conn.execute(
+                "INSERT INTO patterns(id,merchant_id,cadence,expected_amount,"
+                "last_seen,confidence) VALUES (?,?,?,?,?,?)",
+                [subscription_id, merchant_id, cadence, expected_amount,
+                 last_seen, confidence],
+            )
+        else:
+            new_row = (
+                merchant_id, cadence, float(expected_amount),
+                str(last_seen), float(confidence),
+            )
+            old_row = (
+                existing[0], existing[1], float(existing[2]),
+                str(existing[3]), float(existing[4]),
+            )
+            if new_row != old_row:
+                conn.execute(
+                    "UPDATE transactions SET pattern_id=NULL WHERE pattern_id=?",
+                    [subscription_id],
+                )
+                conn.execute(
+                    "UPDATE patterns SET merchant_id=?, cadence=?, "
+                    "expected_amount=?, last_seen=?, confidence=? WHERE id=?",
+                    [merchant_id, cadence, expected_amount, last_seen,
+                     confidence, subscription_id],
+                )
+                # Caller is responsible for re-linking transactions.pattern_id
+                # if needed (e.g. detect_recurring_node re-runs the backfill).
     finally:
         conn.close()
 
