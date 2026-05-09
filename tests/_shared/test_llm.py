@@ -38,3 +38,29 @@ def test_build_chat_model_override_model(tmp_workspace: Path):
 def test_build_chat_model_rejects_non_ollama(tmp_workspace: Path):
     with pytest.raises(ValueError, match="ollama"):
         build_chat_model(model="anthropic:claude-opus-4-7")
+
+
+@pytest.mark.parametrize("model_id", [
+    "Ollama:gemma4:e4b",        # case variant
+    "OLLAMA:gemma4",
+    " ollama:gemma4",           # leading space
+    "ollama-cloud:gemma4",      # prefix variant
+    "ollamax:gemma4",
+    "openai:gpt-4",             # different provider
+    "anthropic:claude-3-opus",
+])
+def test_build_chat_model_rejects_provider_bypass_attempts(
+    tmp_workspace: Path, model_id: str,
+):
+    """Privacy thesis: only literal 'ollama' provider is accepted.
+
+    Future refactors that case-fold or prefix-match the provider would
+    silently weaken this check; this test locks in the strict equality.
+    """
+    with pytest.raises(ValueError, match="ollama"):
+        build_chat_model(model=model_id)
+
+
+def test_parse_model_id_rejects_empty_name():
+    with pytest.raises(ValueError, match="Empty model name"):
+        parse_model_id("ollama:")
