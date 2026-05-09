@@ -5,7 +5,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
@@ -63,14 +62,7 @@ class IngestConfig(BaseModel):
     recurring_amount_tolerance_pct: float = 5.0
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="PFH_",
-        env_nested_delimiter="__",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
+class Settings(BaseModel):
     paths: Paths
     llm: LLMConfig = Field(default_factory=LLMConfig)
     ingest: IngestConfig = Field(default_factory=IngestConfig)
