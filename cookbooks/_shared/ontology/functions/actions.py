@@ -76,11 +76,10 @@ def upsert_statement(
     try:
         # Ensure the FK target row exists. Statements may arrive before
         # the account is fully described; we stub a minimal placeholder so
-        # the FK passes — a later upsert_account call will fill in details.
-        # TODO(T12): the upsert_ledger node MUST upsert real account rows
-        # with ON CONFLICT (id) DO UPDATE so this placeholder gets overwritten;
-        # ON CONFLICT DO NOTHING here means a real later insert is silently
-        # dropped if upsert_statement runs first.
+        # the FK passes. The T12 upsert_ledger node DOES upsert the real
+        # account row with ON CONFLICT (id) DO UPDATE *before* invoking
+        # this Action, so the placeholder is only ever the fallback when
+        # this Action is invoked outside the ingester pipeline.
         conn.execute(
             "INSERT INTO accounts(id,name,type,currency) VALUES (?,?,?,?) "
             "ON CONFLICT (id) DO NOTHING",
