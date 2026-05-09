@@ -16,10 +16,14 @@ from cookbooks.statement_ingester.schemas import CategorisationResult
 
 
 def _stub_llm_returning(result: CategorisationResult):
-    structured = MagicMock()
-    structured.invoke.return_value = result
+    """Mock build_chat_model() to return a chat whose .invoke yields an
+    AIMessage-shaped object with .content set to a JSON string of `result`."""
+    import json
+
+    fake_msg = MagicMock()
+    fake_msg.content = json.dumps(result.model_dump())
     chat = MagicMock()
-    chat.with_structured_output.return_value = structured
+    chat.invoke.return_value = fake_msg
     return chat
 
 

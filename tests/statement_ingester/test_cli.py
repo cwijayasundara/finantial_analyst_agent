@@ -15,10 +15,16 @@ runner = CliRunner()
 
 
 def _llm_stub():
+    """Mock build_chat_model() to return a chat whose .invoke yields an
+    AIMessage-shaped object with .content set to a JSON string."""
+    import json
+
     fake = CategorisationResult(merchant_canonical="X", category="other",
                                 confidence=0.5, reasoning_short="x")
-    structured = MagicMock(); structured.invoke.return_value = fake
-    chat = MagicMock(); chat.with_structured_output.return_value = structured
+    msg = MagicMock()
+    msg.content = json.dumps(fake.model_dump())
+    chat = MagicMock()
+    chat.invoke.return_value = msg
     return chat
 
 

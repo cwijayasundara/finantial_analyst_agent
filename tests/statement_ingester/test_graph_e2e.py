@@ -15,13 +15,18 @@ from tests.fixtures.synthetic_pdf import write_synthetic_pdf
 
 
 def _llm_stub_for(*results: CategorisationResult):
-    iters = iter(results)
+    """Mock build_chat_model() to return a chat whose .invoke yields
+    AIMessage-shaped objects with .content set to JSON strings of the
+    provided results, in order."""
+    import json
 
-    def invoke(_):
-        return next(iters)
-
-    structured = MagicMock(); structured.invoke.side_effect = invoke
-    chat = MagicMock(); chat.with_structured_output.return_value = structured
+    fake_msgs = []
+    for r in results:
+        m = MagicMock()
+        m.content = json.dumps(r.model_dump())
+        fake_msgs.append(m)
+    chat = MagicMock()
+    chat.invoke.side_effect = fake_msgs
     return chat
 
 
