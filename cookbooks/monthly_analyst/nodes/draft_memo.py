@@ -44,6 +44,10 @@ In {period_human} ({period_start} → {period_end}), the ledger recorded \
 
 {budget_lines}
 
+## Forecast (next 3 months)
+
+{forecast_lines}
+
 ## Account Net Flow
 
 {account_lines}
@@ -146,6 +150,17 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         )
     goal_lines = "\n".join(goal_lines_list) or "- (no active goals)"
 
+    # P8 — Forecast section
+    forecasts = state.get("forecasts", []) or []
+    forecast_lines_list = []
+    for f in forecasts:
+        proj = " / ".join(f"£{v}" for v in f.forecast)
+        forecast_lines_list.append(
+            f"- {f.category} · current avg £{f.monthly_average} · "
+            f"projected {proj} ({f.method}, RMSE £{f.rmse})"
+        )
+    forecast_lines = "\n".join(forecast_lines_list) or "- (insufficient history to forecast)"
+
     body = _TEMPLATE.format(
         period_human=_human_period(period),
         period_start=start.isoformat(),
@@ -158,6 +173,7 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         budget_lines=budget_lines,
         net_worth_lines=net_worth_lines,
         goal_lines=goal_lines,
+        forecast_lines=forecast_lines,
         account_lines=account_lines,
     )
 
@@ -196,6 +212,12 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         cited_values += [str(g.current_amount), str(g.target_amount),
                          f"{g.pct_complete:.0%}",
                          str(g.months_elapsed), str(g.months_total)]
+    # P8 forecast values
+    for f in forecasts:
+        cited_values.append(str(f.monthly_average))
+        cited_values.append(str(f.rmse))
+        for v in f.forecast:
+            cited_values.append(str(v))
     # Citations: goal + networth pages
     if nw_total is not None:
         citations.append(f"snap_{period}")

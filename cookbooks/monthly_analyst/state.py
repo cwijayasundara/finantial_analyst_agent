@@ -34,6 +34,9 @@ class AnalystState(TypedDict, total=False):
     # P7 — populated by compute_goals
     goal_progress: list[Any]
 
+    # P8 — populated by forecast
+    forecasts: list[Any]                  # list[CategoryForecast]
+
     # Populated by draft_memo
     draft_body: str
     draft_citations: list[str]

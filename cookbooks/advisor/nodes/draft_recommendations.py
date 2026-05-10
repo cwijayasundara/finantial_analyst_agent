@@ -143,6 +143,45 @@ def draft_recommendations_node(state: AdvisorState) -> AdvisorState:
             "confidence": 0.7,
         })
 
+    # P8 — forecast_overshoot: category projected to exceed its budget by ≥ 10%
+    variances_by_cat = {
+        v.scope_id: v for v in state.get("budget_variances", [])
+        if v.scope_type == "category"
+    }
+    for f in state.get("forecasts", []) or []:
+        v = variances_by_cat.get(f.category)
+        if v is None:
+            continue
+        projected_total = Decimal(str(v.actual)) + sum(f.forecast, Decimal("0"))
+        target = Decimal(str(v.target))
+        if target <= 0:
+            continue
+        overshoot = projected_total - target
+        if overshoot <= target * Decimal("0.10"):
+            continue
+        suggested_cap = ((target - Decimal(str(v.actual))) / 3).quantize(Decimal("0.01"))
+        body = (
+            f"## Heads-up: [[{v.budget_id}]] is on track to overshoot\n\n"
+            f"At your current pace (avg £{f.monthly_average}/month; "
+            f"projecting £{f.forecast[0]} / £{f.forecast[1]} / £{f.forecast[2]} "
+            f"via {f.method}), cumulative spend on **{f.category}** is heading "
+            f"for £{projected_total} versus the £{target} target — an "
+            f"overshoot of £{overshoot}. To stay on plan, hold the next three "
+            f"months under £{suggested_cap} on average."
+        )
+        drafts.append({
+            "kind": "forecast_overshoot",
+            "body_md": body,
+            "citations": [v.budget_id],
+            "cited_values": [
+                str(f.monthly_average), str(f.forecast[0]),
+                str(f.forecast[1]), str(f.forecast[2]),
+                str(projected_total), str(target), str(overshoot),
+                str(suggested_cap),
+            ],
+            "confidence": 0.6,
+        })
+
     # P7 — net_worth_decline: total fell for two consecutive months
     hist = state.get("net_worth_history", []) or []
     if len(hist) >= 3:

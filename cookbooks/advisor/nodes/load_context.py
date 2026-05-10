@@ -11,7 +11,9 @@ from cookbooks._shared.analytics.anomalies import (
     detect_merchant_outliers, detect_subscription_drift,
 )
 from cookbooks._shared.analytics.budgets import budget_variance
+from cookbooks._shared.analytics.forecast import forecast_category
 from cookbooks._shared.analytics.goals import all_active_goals_progress
+from cookbooks._shared.analytics.spending import category_totals
 from cookbooks._shared.config import load_settings
 from cookbooks._shared.db import connect_readonly
 from cookbooks.advisor.state import AdvisorState
@@ -116,6 +118,15 @@ def load_context_node(state: AdvisorState) -> AdvisorState:
     except Exception:
         goals = []
 
+    # P8 — forecasts for the top-8 categories by current spend
+    try:
+        top_cats = sorted(category_totals(period),
+                          key=lambda c: c.total, reverse=True)[:8]
+        forecasts = [forecast_category(c.category, period, horizon=3, lookback=12)
+                     for c in top_cats]
+    except Exception:
+        forecasts = []
+
     return {
         **state,
         "memo_frontmatter": fm,
@@ -127,4 +138,5 @@ def load_context_node(state: AdvisorState) -> AdvisorState:
         "goal_progress": goals,
         "net_worth_history": _load_recent_snapshots(period, limit=3),
         "credit_statements": _load_credit_statements(period),
+        "forecasts": forecasts,
     }
