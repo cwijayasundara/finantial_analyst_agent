@@ -126,12 +126,15 @@ fire by default.
 
 ## Frontend
 
-There is **no web UI** in this repository. All interaction is through
-the CLIs above plus Obsidian (which can render `wiki/` directly). A
-React or Next.js dashboard is **out of scope for v1**; if it lands
-later, it would be a separate `web/` package consuming the existing
-DuckDB ledger + Markdown wiki + Kuzu graph as read-only data sources
-(or via a thin FastAPI layer over `cookbooks/_shared/qa_tools.py`).
+There is **no web UI** in this repository yet. All interaction is
+through the CLIs above plus Obsidian (which can render `wiki/`
+directly). A Next.js + FastAPI dashboard is planned as **P6** — see
+[`docs/superpowers/plans/2026-05-10-p6-web-frontend.md`](docs/superpowers/plans/2026-05-10-p6-web-frontend.md)
+for the full plan. The frontend would preserve the privacy contract:
+both servers bind to `127.0.0.1`, the FastAPI shim wraps the existing
+`cookbooks._shared.qa_tools` and action layer, and the Q&A endpoint
+calls `build_chat_model()` so the masker / denylist / audit log all
+apply unchanged.
 
 ## Repository layout
 
