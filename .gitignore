@@ -21,6 +21,8 @@ out/
 # pyvis auto-extracts vis.js/tom-select bundles next to graph.html
 lib/
 
+wiki
+
 # --- Python / build artefacts ---
 __pycache__/
 *.pyc

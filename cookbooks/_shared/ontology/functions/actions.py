@@ -76,7 +76,7 @@ def _decision_affects(action: str, inputs: dict[str, Any]) -> list[dict[str, str
     """
     if action in {
         "upsert_merchant", "upsert_statement", "upsert_subscription",
-        "publish_monthly_memo",
+        "publish_monthly_memo", "merge_merchant_aliases",
     }:
         page_id = inputs.get("id", "")
         if page_id:
@@ -426,8 +426,98 @@ def upsert_subscription(
 
 # Stubs for actions delivered in later phases — left here so the action
 # registry resolves and scope checks fire on misuse.
-def merge_merchant_aliases(*, actor: str, **inputs: Any) -> str:
-    raise NotImplementedError("merge_merchant_aliases lands in P3")
+def merge_merchant_aliases(
+    *,
+    actor: str,
+    source_merchant_id: str,
+    target_merchant_id: str,
+    reason: str = "",
+) -> str:
+    """Merge `source_merchant_id` into `target_merchant_id`.
+
+    Re-points every transaction, deletes the source merchant row from
+    DuckDB, removes the source wiki page, and re-emits the target via
+    `upsert_merchant` so its alias list grows. Decision page fires
+    automatically via the `_audit` hook.
+
+    Returns the consolidated target's wiki page id.
+    """
+    if source_merchant_id == target_merchant_id:
+        raise ValueError("source and target merchant_id must differ")
+
+    init_schema()
+    conn = connect_readwrite()
+    try:
+        rows = conn.execute(
+            "SELECT id, canonical_name, category_id, COALESCE(aliases, '[]') "
+            "FROM merchants WHERE id IN (?, ?)",
+            [source_merchant_id, target_merchant_id],
+        ).fetchall()
+        by_id = {r[0]: r for r in rows}
+        if source_merchant_id not in by_id:
+            raise KeyError(f"source merchant {source_merchant_id!r} not found")
+        if target_merchant_id not in by_id:
+            raise KeyError(f"target merchant {target_merchant_id!r} not found")
+
+        target_row = by_id[target_merchant_id]
+        source_row = by_id[source_merchant_id]
+        target_canonical = target_row[1]
+        target_category_id = target_row[2]
+
+        # Re-point every transaction at the target before we can drop the
+        # source row (FK constraint).
+        conn.execute(
+            "UPDATE transactions SET merchant_id=? WHERE merchant_id=?",
+            [target_merchant_id, source_merchant_id],
+        )
+        # Now safe to delete the source row.
+        conn.execute("DELETE FROM merchants WHERE id=?", [source_merchant_id])
+
+        # Compute the union of aliases for the upsert below.
+        existing_aliases = json.loads(target_row[3]) if target_row[3] else []
+        source_aliases = json.loads(source_row[3]) if source_row[3] else []
+        # Source canonical is itself an alias of the target now.
+        merged_aliases = list({*existing_aliases, *source_aliases, source_row[1]})
+
+        # Look up the category name from category_id for upsert_merchant call.
+        cat_row = conn.execute(
+            "SELECT name FROM categories WHERE id=?", [target_category_id]
+        ).fetchone()
+        category_name = cat_row[0] if cat_row else "other"
+    finally:
+        conn.close()
+
+    # Remove the source wiki page (the audit + Decision are about the
+    # MERGE event, not the source page going away).
+    settings = load_settings()
+    source_page = settings.paths.wiki / "merchants" / f"merchant_{source_merchant_id}.md"
+    if not source_page.exists():
+        # Fallback to id-as-page-id pattern
+        source_page = settings.paths.wiki / "merchants" / f"{source_merchant_id}.md"
+    if source_page.exists():
+        source_page.unlink()
+
+    # Re-emit the target via upsert_merchant — this fires its own audit
+    # (upsert_merchant) but we ALSO want a Decision page for THIS action.
+    # We get both: the upsert_merchant Decision PLUS a merge_merchant_aliases
+    # Decision below.
+    upsert_merchant(
+        actor=actor,
+        merchant_id=target_merchant_id,
+        canonical_name=target_canonical,
+        category=category_name,
+        aliases=merged_aliases,
+    )
+
+    fm = {
+        "id": f"merchant_{target_merchant_id}",
+        "type": "Merchant",
+        "source_merchant_id": source_merchant_id,
+        "target_merchant_id": target_merchant_id,
+        "reason": reason,
+    }
+    _audit("merge_merchant_aliases", actor, fm, f"merchant_{target_merchant_id}")
+    return f"merchant_{target_merchant_id}"
 
 
 def publish_monthly_memo(

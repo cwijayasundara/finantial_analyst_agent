@@ -260,3 +260,138 @@ class TestPublishMonthlyMemo:
                 actor="ingester",  # only `analyst` is allowed
                 inputs={"period": "2025_08", "body_md": "x", "citations": []},
             )
+
+
+# --- P3 Task 2: merge_merchant_aliases ---
+
+
+def test_merge_merchant_aliases_repoints_transactions(tmp_workspace: Path):
+    from cookbooks._shared.db import connect_readwrite, init_schema
+    from cookbooks._shared.ontology.functions.actions import merge_merchant_aliases
+
+    upsert_merchant(actor="ingester", merchant_id="amazon",
+                    canonical_name="Amazon", category="other",
+                    aliases=["amazon.co.uk"])
+    upsert_merchant(actor="ingester", merchant_id="amzn",
+                    canonical_name="Amzn", category="other",
+                    aliases=["AMZNMktplace*X"])
+
+    # Seed transactions referencing both merchants
+    init_schema()
+    conn = connect_readwrite()
+    try:
+        conn.execute("INSERT INTO accounts(id,name,type) VALUES ('a','A','credit')")
+        conn.execute(
+            "INSERT INTO statements(id,account_id,period_start,period_end,"
+            "source_pdf,sha256,parser_used) VALUES "
+            "('s','a','2025-04-01','2025-04-30','x','d','docling')"
+        )
+        conn.execute(
+            "INSERT INTO transactions(id,date,amount,raw_description,merchant_id,"
+            "category_id,statement_id,account_id) VALUES "
+            "('t1','2025-04-05','-10.00','AMZNMktplace*X','amzn',8,'s','a'),"
+            "('t2','2025-04-10','-15.00','amazon.co.uk','amazon',8,'s','a')"
+        )
+    finally:
+        conn.close()
+
+    new_page = merge_merchant_aliases(
+        actor="ingester",
+        source_merchant_id="amzn",
+        target_merchant_id="amazon",
+        reason="duplicate brand",
+    )
+    assert new_page == "merchant_amazon"
+
+    conn = connect_readwrite()
+    try:
+        # Both transactions now point to amazon
+        rows = conn.execute(
+            "SELECT id, merchant_id FROM transactions ORDER BY id"
+        ).fetchall()
+        assert {r[1] for r in rows} == {"amazon"}
+        # Source merchant row is gone
+        assert conn.execute(
+            "SELECT id FROM merchants WHERE id='amzn'"
+        ).fetchone() is None
+    finally:
+        conn.close()
+
+
+def test_merge_merchant_aliases_emits_decision(tmp_workspace: Path):
+    from cookbooks._shared.ontology.functions.actions import merge_merchant_aliases
+
+    upsert_merchant(actor="ingester", merchant_id="a",
+                    canonical_name="A", category="other", aliases=[])
+    upsert_merchant(actor="ingester", merchant_id="b",
+                    canonical_name="B", category="other", aliases=[])
+    merge_merchant_aliases(
+        actor="ingester", source_merchant_id="a", target_merchant_id="b",
+        reason="test",
+    )
+    s = load_settings()
+    decisions = list((s.paths.wiki / "decisions").glob(
+        "*merge_merchant_aliases*"
+    ))
+    assert decisions, "expected a Decision page for the merge"
+    body = decisions[-1].read_text()
+    assert "[[merchant_b]]" in body
+    assert "merge_merchant_aliases" in body
+
+
+def test_merge_merchant_aliases_unions_aliases(tmp_workspace: Path):
+    from cookbooks._shared.ontology.functions.actions import merge_merchant_aliases
+
+    upsert_merchant(actor="ingester", merchant_id="amazon",
+                    canonical_name="Amazon", category="other",
+                    aliases=["amazon.co.uk", "amzn.co.uk"])
+    upsert_merchant(actor="ingester", merchant_id="amzn",
+                    canonical_name="Amzn", category="other",
+                    aliases=["AMZNMktplace*X"])
+    merge_merchant_aliases(
+        actor="ingester", source_merchant_id="amzn",
+        target_merchant_id="amazon", reason="x",
+    )
+    s = load_settings()
+    body = (s.paths.wiki / "merchants" / "merchant_amazon.md").read_text()
+    # All three aliases now on the consolidated page
+    for alias in ("amazon.co.uk", "amzn.co.uk", "AMZNMktplace*X"):
+        assert alias in body, f"missing alias {alias!r}"
+
+
+def test_merge_rejects_self_merge(tmp_workspace: Path):
+    from cookbooks._shared.ontology.functions.actions import merge_merchant_aliases
+
+    upsert_merchant(actor="ingester", merchant_id="x",
+                    canonical_name="X", category="other", aliases=[])
+    with pytest.raises(ValueError, match="must differ"):
+        merge_merchant_aliases(
+            actor="ingester", source_merchant_id="x",
+            target_merchant_id="x", reason="oops",
+        )
+
+
+def test_merge_unknown_target_raises(tmp_workspace: Path):
+    from cookbooks._shared.ontology.functions.actions import merge_merchant_aliases
+
+    upsert_merchant(actor="ingester", merchant_id="a",
+                    canonical_name="A", category="other", aliases=[])
+    with pytest.raises(KeyError, match="target merchant"):
+        merge_merchant_aliases(
+            actor="ingester", source_merchant_id="a",
+            target_merchant_id="ghost", reason="x",
+        )
+
+
+def test_merge_via_invoke_action(tmp_workspace: Path):
+    upsert_merchant(actor="ingester", merchant_id="a",
+                    canonical_name="A", category="other", aliases=[])
+    upsert_merchant(actor="ingester", merchant_id="b",
+                    canonical_name="B", category="other", aliases=[])
+    page = invoke_action(
+        action_id="merge_merchant_aliases",
+        actor="ingester",
+        inputs={"source_merchant_id": "a",
+                "target_merchant_id": "b", "reason": "test"},
+    )
+    assert page == "merchant_b"
