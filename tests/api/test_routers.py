@@ -197,6 +197,87 @@ def test_graph_snapshot_filter_by_type(client):
     assert all(n["type"] == "Merchant" for n in body["nodes"])
 
 
+def test_merge_preview_without_idempotency_key(client):
+    r = client.post("/api/merchants/merge", json={
+        "source_merchant_id": "costa",
+        "target_merchant_id": "amazon",
+        "reason": "test merge",
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["preview"] is True
+    assert body["transactions_to_repoint"] >= 1
+    assert "confirm_with_idempotency_key" in body
+
+
+def test_merge_executes_with_idempotency_key(client):
+    preview = client.post("/api/merchants/merge", json={
+        "source_merchant_id": "costa",
+        "target_merchant_id": "amazon",
+        "reason": "test merge",
+    }).json()
+    key = preview["confirm_with_idempotency_key"]
+    r = client.post(
+        "/api/merchants/merge",
+        json={
+            "source_merchant_id": "costa",
+            "target_merchant_id": "amazon",
+            "reason": "confirmed",
+        },
+        headers={"Idempotency-Key": key},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    assert r.json()["target_page_id"] == "merchant_amazon"
+
+
+def test_merge_replay_returns_409(client):
+    client.post(
+        "/api/merchants/merge",
+        json={"source_merchant_id": "costa",
+              "target_merchant_id": "amazon", "reason": "first"},
+        headers={"Idempotency-Key": "test-key-1"},
+    )
+    r = client.post(
+        "/api/merchants/merge",
+        json={"source_merchant_id": "costa",
+              "target_merchant_id": "amazon", "reason": "first"},
+        headers={"Idempotency-Key": "test-key-1"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "duplicate_request"
+
+
+def test_merge_rejects_self_merge(client):
+    r = client.post("/api/merchants/merge", json={
+        "source_merchant_id": "amazon",
+        "target_merchant_id": "amazon",
+        "reason": "oops",
+    })
+    assert r.status_code == 400
+
+
+def test_concept_reviews_list_and_close(client):
+    from cookbooks._shared.ontology.functions.actions import flag_concept_review
+    flag_concept_review(
+        actor="advisor", concept_id="merchant_x",
+        kind="generic_canonical", reason="canonical is generic",
+    )
+    rows = client.get("/api/concept-reviews").json()
+    assert any(r["concept_id"] == "merchant_x" for r in rows)
+
+    review_id = rows[0]["id"]
+    closed = client.post(
+        f"/api/concept-reviews/{review_id}/close",
+        json={"actor": "user", "resolution": "renamed manually"},
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+
+    open_rows = client.get("/api/concept-reviews?status=open").json()
+    assert all(r["id"] != review_id for r in open_rows)
+
+
 def test_qa_ask_sync(client, monkeypatch):
     # Mock the chat model so the test doesn't need ollama
     fake_chat = MagicMock()

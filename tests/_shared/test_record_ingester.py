@@ -152,6 +152,41 @@ class TestIngestRecords:
         with pytest.raises(RowError, match="cadence_in"):
             ingest_records(csv_path, manifest_path)
 
+    def test_budget_csv_ingests(self, tmp_workspace):
+        """Budget dispatch wired into _DISPATCH; manifest-driven path works."""
+        from cookbooks._shared.db import connect_readonly, init_schema
+        init_schema()
+        csv_path = tmp_workspace / "budgets.csv"
+        manifest_path = tmp_workspace / "budgets.manifest.yaml"
+        csv_path.write_text(
+            "id,period,scope_type,scope_id,target_amount,notes\n"
+            "b1,2025_04,category,groceries,200,monthly groceries\n"
+            "b2,2025_04,category,dining,80,cafes etc\n",
+            encoding="utf-8",
+        )
+        manifest_path.write_text(
+            "target_type: Budget\n"
+            "identity: {column: id}\n"
+            "mapping:\n"
+            "  period: period\n"
+            "  scope_type: scope_type\n"
+            "  scope_id: scope_id\n"
+            "  target_amount: target_amount\n"
+            "  notes: notes\n"
+            "validation:\n"
+            "  required: [period, scope_type, scope_id, target_amount]\n"
+            "  scope_type_in: [category, merchant]\n",
+        )
+        report = ingest_records(csv_path, manifest_path)
+        assert report.rows_ingested == 2
+
+        conn = connect_readonly()
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM budgets").fetchone()[0]
+        finally:
+            conn.close()
+        assert n == 2
+
     def test_unknown_target_type_in_csv_pair(self, tmp_workspace):
         csv_path = tmp_workspace / "x.csv"
         manifest_path = tmp_workspace / "x.manifest.yaml"

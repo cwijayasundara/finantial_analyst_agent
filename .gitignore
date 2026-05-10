@@ -3,12 +3,14 @@
 # contain name/address/sort code/account), the DuckDB ledger, the wiki
 # auto-generated from real transactions, the compiled Kuzu graph, and
 # the OpenAI audit log all derive from real personal finance data.
-sources/
-parsed/
-wiki/
-data/
-graph/
-out/
+# Anchored to the repo root so a `web/app/graph/` route or other nested
+# directory with these names is NOT excluded.
+/sources/
+/parsed/
+/wiki/
+/data/
+/graph/
+/out/
 .env
 .env.local
 *.duckdb
