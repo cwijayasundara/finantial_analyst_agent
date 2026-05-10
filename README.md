@@ -124,9 +124,43 @@ All env vars are documented in [`.env.example`](.env.example). Highlights:
 Run `bash scripts/check-egress.sh` to smoke-test that no remote calls
 fire by default.
 
-## Frontend
+## Web frontend
 
-There is **no web UI** in this repository yet. All interaction is
+A local-only Next.js + FastAPI dashboard ships in **P6** under `web/`
++ `cookbooks/api/`. Both processes hard-bind to `127.0.0.1`. CSP locks
+the page to its own origin and the local API; no CDN imports; no
+external network at build or run time.
+
+```bash
+# One-time
+cd web && pnpm install
+
+# Both servers in one shell (Ctrl-C kills both)
+bash scripts/dev.sh
+
+# Or split:
+python -m cookbooks.api          # http://127.0.0.1:8000
+cd web && pnpm dev               # http://127.0.0.1:3000
+
+# Production build
+bash scripts/build-web.sh
+cd web && pnpm start
+```
+
+Routes: `/` (dashboard), `/memos`, `/memos/[period]`, `/merchants`,
+`/merchants/[id]`, `/recommendations`, `/recommendations/[id]`,
+`/budgets`, `/qa`, `/graph`, `/decisions/[id]`. See
+[`web/README.md`](web/README.md) for the layout and
+[`docs/superpowers/plans/2026-05-10-p6-web-frontend.md`](docs/superpowers/plans/2026-05-10-p6-web-frontend.md)
+for the design.
+
+The Q&A endpoint calls `build_chat_model()` so the privacy stack
+(masker / denylist / `assert_no_pii` guard / audit log) applies
+unchanged.
+
+## Legacy frontend note
+
+There is **no other web UI** in this repository. All interaction is
 through the CLIs above plus Obsidian (which can render `wiki/`
 directly). A Next.js + FastAPI dashboard is planned as **P6** — see
 [`docs/superpowers/plans/2026-05-10-p6-web-frontend.md`](docs/superpowers/plans/2026-05-10-p6-web-frontend.md)

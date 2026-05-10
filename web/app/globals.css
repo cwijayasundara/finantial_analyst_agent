@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.wikilink {
+  @apply inline-flex items-center rounded-md bg-info/10 px-1.5 py-0.5 text-info hover:bg-info/20 hover:underline;
+  font-size: 0.95em;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium;
+}
+.badge-positive { @apply bg-positive/10 text-positive; }
+.badge-negative { @apply bg-negative/10 text-negative; }
+.badge-warn     { @apply bg-warn/10 text-warn; }
+.badge-info     { @apply bg-info/10 text-info; }
+.badge-accent   { @apply bg-accent/10 text-accent; }
+
+.prose-pfh { @apply text-sm leading-7; }
+.prose-pfh h1 { @apply text-2xl font-semibold mt-4 mb-2; }
+.prose-pfh h2 { @apply text-lg font-semibold mt-5 mb-2; }
+.prose-pfh h3 { @apply text-base font-semibold mt-3 mb-1; }
+.prose-pfh ul { @apply list-disc list-inside space-y-1; }
+.prose-pfh code { @apply rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 text-[0.85em]; }
+.prose-pfh pre  { @apply rounded bg-black/5 dark:bg-white/10 p-3 overflow-x-auto; }
