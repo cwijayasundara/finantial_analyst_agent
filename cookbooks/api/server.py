@@ -44,10 +44,19 @@ def get_port() -> int:
 def build_app() -> FastAPI:
     """Construct the FastAPI app. Routers are registered here so tests
     can build a fresh app per test without uvicorn boot."""
+    # Bring any P4-P7 tables in sync with the running schema. Pre-P4
+    # ledgers (created before goals / budgets / net_worth_snapshots
+    # existed) would otherwise 500 on first GET.
+    try:
+        from cookbooks._shared.db import init_schema
+        init_schema()
+    except Exception:
+        pass  # never block app construction; tests rely on lazy init
+
     app = FastAPI(
         title="personal-finance-helper API",
         description="Local-only shim. No auth; loopback bind enforced.",
-        version="0.6.0",
+        version="0.7.0",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -63,8 +72,8 @@ def build_app() -> FastAPI:
 
     # Routers
     from cookbooks.api.routers import (
-        budgets, concept_reviews, decisions, graph, memos, merchants,
-        qa, recommendations, statements,
+        budgets, concept_reviews, decisions, goals, graph, memos,
+        merchants, net_worth, qa, recommendations, statements,
     )
     app.include_router(memos.router)
     app.include_router(merchants.router)
@@ -75,6 +84,8 @@ def build_app() -> FastAPI:
     app.include_router(graph.router)
     app.include_router(qa.router)
     app.include_router(concept_reviews.router)
+    app.include_router(goals.router)        # P7
+    app.include_router(net_worth.router)    # P7
     return app
 
 

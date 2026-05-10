@@ -11,8 +11,10 @@ const NAV = [
   { href: "/",                title: "Dashboard"       },
   { href: "/memos",           title: "Memos"           },
   { href: "/merchants",       title: "Merchants"       },
-  { href: "/recommendations", title: "Recommendations" },
+  { href: "/recommendations", title: "Recs"            },
   { href: "/budgets",         title: "Budgets"         },
+  { href: "/goals",           title: "Goals"           },
+  { href: "/networth",        title: "Net Worth"       },
   { href: "/qa",              title: "Q&A"             },
   { href: "/graph",           title: "Graph"           },
 ];

@@ -21,9 +21,8 @@
 .claude/
 
 # pyvis auto-extracts vis.js/tom-select bundles next to graph.html
-lib/
-
-wiki
+# (anchored to root so web/lib/ etc. aren't excluded)
+/lib/
 
 # --- Python / build artefacts ---
 __pycache__/
