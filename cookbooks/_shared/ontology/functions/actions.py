@@ -78,6 +78,7 @@ def _decision_affects(action: str, inputs: dict[str, Any]) -> list[dict[str, str
         "upsert_merchant", "upsert_statement", "upsert_subscription",
         "publish_monthly_memo", "merge_merchant_aliases", "set_budget",
         "publish_recommendation", "flag_concept_review",
+        "set_goal", "snapshot_net_worth",
     }:
         page_id = inputs.get("id", "")
         if page_id:
@@ -422,6 +423,161 @@ def upsert_subscription(
     target.write_text(md, encoding="utf-8")
 
     _audit("upsert_subscription", actor, fm, page_id)
+    return page_id
+
+
+def _slug(s: str) -> str:
+    import re as _re
+    return _re.sub(r"[^a-z0-9]+", "_", s.strip().lower()).strip("_") or "x"
+
+
+def upsert_goal(
+    *,
+    actor: str,
+    name: str,
+    target_amount: float,
+    target_date: str,                    # 'yyyy-mm-dd'
+    scope_type: str,                     # 'savings_account' | 'debt_payoff' | 'category_underspend' | 'custom'
+    scope_id: str,
+    status: str = "active",
+    started_at: str | None = None,
+    notes: str = "",
+) -> str:
+    """Write wiki/goals/<id>.md + DB row + Decision page.
+
+    Idempotent on (name, target_date) — re-running with the same name +
+    deadline updates the row in place. The id slug is derived from the
+    name + date for stable wikilinks.
+    """
+    valid_scopes = {"savings_account", "debt_payoff", "category_underspend", "custom"}
+    if scope_type not in valid_scopes:
+        raise ValueError(f"scope_type must be one of {valid_scopes}; got {scope_type!r}")
+    valid_status = {"active", "paused", "achieved", "missed"}
+    if status not in valid_status:
+        raise ValueError(f"status must be one of {valid_status}; got {status!r}")
+
+    settings = load_settings()
+    page_id = f"goal_{_slug(name)}_{target_date}"
+    target_link = (
+        f"acct_{scope_id}" if scope_type == "savings_account"
+        else f"acct_{scope_id}" if scope_type == "debt_payoff"
+        else f"cat_{scope_id}" if scope_type == "category_underspend"
+        else scope_id
+    )
+
+    init_schema()
+    conn = connect_readwrite()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM goals WHERE name=? AND target_date=?",
+            [name, target_date],
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE goals SET target_amount=?, scope_type=?, scope_id=?, "
+                "status=?, started_at=?, notes=? WHERE id=?",
+                [float(target_amount), scope_type, scope_id, status,
+                 started_at, notes, existing[0]],
+            )
+            page_id = existing[0]
+        else:
+            conn.execute(
+                "INSERT INTO goals(id,name,target_amount,target_date,scope_type,"
+                "scope_id,status,started_at,notes) VALUES (?,?,?,?,?,?,?,?,?)",
+                [page_id, name, float(target_amount), target_date,
+                 scope_type, scope_id, status, started_at, notes],
+            )
+    finally:
+        conn.close()
+
+    fm = {
+        "id": page_id,
+        "type": "Goal",
+        "name": name,
+        "target_amount": float(target_amount),
+        "target_date": target_date,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "status": status,
+        "started_at": started_at,
+        "notes": notes,
+        "updated": datetime.now(UTC).isoformat(),
+    }
+    body = (
+        f"# Goal · {name}\n\n"
+        f"- Target: £{float(target_amount):.2f} by {target_date}\n"
+        f"- Scope: `{scope_type}` → [[{target_link}]]\n"
+        f"- Status: `{status}`\n"
+        + (f"- Started: {started_at}\n" if started_at else "")
+        + (f"\n{notes}\n" if notes else "")
+    )
+    target = settings.paths.wiki / "goals" / f"{page_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_frontmatter(fm) + body, encoding="utf-8")
+
+    _audit("set_goal", actor, fm, page_id)
+    return page_id
+
+
+def snapshot_net_worth(
+    *,
+    actor: str,
+    period: str,
+    total_amount: float,
+    by_account: dict[str, float],
+    notes: str = "",
+) -> str:
+    """Write wiki/networth/<id>.md + DB row + Decision page.
+
+    Idempotent on `period` — re-running for the same period overwrites
+    the row + page. `by_account` is `{account_id: signed_balance}`.
+    """
+    settings = load_settings()
+    page_id = f"snap_{period}"
+
+    init_schema()
+    conn = connect_readwrite()
+    try:
+        # Compute timestamp Python-side so DuckDB's ON CONFLICT clause
+        # doesn't have to parse a function call as a SET value (which it
+        # treats as a column reference and rejects).
+        now_ts = datetime.now(UTC).isoformat()
+        conn.execute(
+            "INSERT INTO net_worth_snapshots(id,period,total_amount,by_account,computed_at,notes) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT (period) DO UPDATE SET "
+            "total_amount=excluded.total_amount, "
+            "by_account=excluded.by_account, "
+            "computed_at=excluded.computed_at, "
+            "notes=excluded.notes",
+            [page_id, period, float(total_amount),
+             json.dumps(by_account, default=str), now_ts, notes],
+        )
+    finally:
+        conn.close()
+
+    fm = {
+        "id": page_id,
+        "type": "NetWorthSnapshot",
+        "period": period,
+        "total_amount": float(total_amount),
+        "by_account": {k: float(v) for k, v in by_account.items()},
+        "notes": notes,
+        "updated": datetime.now(UTC).isoformat(),
+    }
+    breakdown_lines = "\n".join(
+        f"- [[{aid}]]: £{float(v):.2f}" for aid, v in sorted(by_account.items())
+    ) or "- (no accounts)"
+    body = (
+        f"# Net Worth · {period}\n\n"
+        f"- Total: £{float(total_amount):.2f}\n\n"
+        f"## By account\n{breakdown_lines}\n"
+    )
+    target = settings.paths.wiki / "networth" / f"{page_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_frontmatter(fm) + body, encoding="utf-8")
+
+    _audit("snapshot_net_worth", actor, fm, page_id)
     return page_id
 
 

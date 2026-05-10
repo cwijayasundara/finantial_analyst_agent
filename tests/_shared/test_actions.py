@@ -395,3 +395,121 @@ def test_merge_via_invoke_action(tmp_workspace: Path):
                 "target_merchant_id": "b", "reason": "test"},
     )
     assert page == "merchant_b"
+
+
+# --- P7 Goals + NetWorth ---
+
+
+def test_upsert_goal_writes_wiki_and_db(tmp_workspace: Path):
+    from cookbooks._shared.db import connect_readonly, init_schema
+    from cookbooks._shared.ontology.functions.actions import upsert_goal
+    init_schema()
+    page = upsert_goal(
+        actor="user", name="holiday-2026", target_amount=6000.0,
+        target_date="2026-04-30", scope_type="savings_account",
+        scope_id="savings_main", started_at="2025-01-01",
+        notes="annual holiday fund",
+    )
+    assert page == "goal_holiday_2026_2026-04-30"
+    s = load_settings()
+    body = (s.paths.wiki / "goals" / f"{page}.md").read_text()
+    assert "holiday-2026" in body
+    assert "[[acct_savings_main]]" in body
+    conn = connect_readonly()
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM goals").fetchone()[0]
+    finally:
+        conn.close()
+    assert n == 1
+
+
+def test_upsert_goal_idempotent_on_name_and_date(tmp_workspace: Path):
+    from cookbooks._shared.db import connect_readonly, init_schema
+    from cookbooks._shared.ontology.functions.actions import upsert_goal
+    init_schema()
+    p1 = upsert_goal(actor="user", name="x", target_amount=100.0,
+                     target_date="2026-04-30", scope_type="savings_account",
+                     scope_id="a")
+    p2 = upsert_goal(actor="user", name="x", target_amount=200.0,
+                     target_date="2026-04-30", scope_type="savings_account",
+                     scope_id="a")
+    assert p1 == p2
+    conn = connect_readonly()
+    try:
+        amt = conn.execute(
+            "SELECT target_amount FROM goals WHERE id=?", [p1]
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert float(amt) == 200.0
+
+
+def test_upsert_goal_rejects_invalid_scope_type(tmp_workspace: Path):
+    from cookbooks._shared.db import init_schema
+    from cookbooks._shared.ontology.functions.actions import upsert_goal
+    init_schema()
+    with pytest.raises(ValueError, match="scope_type"):
+        upsert_goal(actor="user", name="x", target_amount=100.0,
+                    target_date="2026-04-30", scope_type="bogus",
+                    scope_id="x")
+
+
+def test_upsert_goal_emits_decision(tmp_workspace: Path):
+    from cookbooks._shared.db import init_schema
+    from cookbooks._shared.ontology.functions.actions import upsert_goal
+    init_schema()
+    upsert_goal(actor="user", name="x", target_amount=100.0,
+                target_date="2026-04-30", scope_type="savings_account",
+                scope_id="a")
+    s = load_settings()
+    decisions = list((s.paths.wiki / "decisions").glob("*set_goal*"))
+    assert decisions
+    body = decisions[0].read_text()
+    assert "[[goal_x_2026-04-30]]" in body
+
+
+def test_snapshot_net_worth_writes_wiki_and_db(tmp_workspace: Path):
+    from cookbooks._shared.db import connect_readonly, init_schema
+    from cookbooks._shared.ontology.functions.actions import snapshot_net_worth
+    init_schema()
+    page = snapshot_net_worth(
+        actor="analyst", period="2025_04", total_amount=12345.67,
+        by_account={"savings_main": 8000.0, "credit_1588": -1200.0,
+                    "checking": 5545.67},
+    )
+    assert page == "snap_2025_04"
+    s = load_settings()
+    body = (s.paths.wiki / "networth" / f"{page}.md").read_text()
+    assert "Net Worth · 2025_04" in body
+    assert "[[savings_main]]" in body
+    assert "[[credit_1588]]" in body
+    conn = connect_readonly()
+    try:
+        row = conn.execute(
+            "SELECT total_amount FROM net_worth_snapshots WHERE period='2025_04'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert float(row[0]) == 12345.67
+
+
+def test_snapshot_net_worth_idempotent_on_period(tmp_workspace: Path):
+    from cookbooks._shared.db import connect_readonly, init_schema
+    from cookbooks._shared.ontology.functions.actions import snapshot_net_worth
+    init_schema()
+    snapshot_net_worth(actor="analyst", period="2025_04",
+                       total_amount=1000.0, by_account={"a": 1000.0})
+    snapshot_net_worth(actor="analyst", period="2025_04",
+                       total_amount=2000.0, by_account={"a": 2000.0})
+    conn = connect_readonly()
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM net_worth_snapshots"
+        ).fetchone()[0]
+        amt = conn.execute(
+            "SELECT total_amount FROM net_worth_snapshots WHERE period='2025_04'"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert n == 1
+    assert float(amt) == 2000.0

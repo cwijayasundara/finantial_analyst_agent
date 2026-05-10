@@ -14,6 +14,19 @@
 - id: Memo
   description: Monthly analyst-produced summary.
 - id: Decision
-  description: Audited advisor recommendation.
+  description: Audited record of an Action invocation. Captures actor, scopes, inputs, result, fingerprints.
 - id: Annotation
   description: Manual user note attached to a transaction.
+# --- P4 ---
+- id: Budget
+  description: A monthly or annual spending target for a Category or Merchant.
+# --- P5 ---
+- id: Recommendation
+  description: An actionable suggestion from the advisor cookbook.
+- id: ConceptReview
+  description: A queued question for the user to resolve manually.
+# --- P7 ---
+- id: Goal
+  description: A target dollar amount to reach by a deadline; underpins plan-mode advice.
+- id: NetWorthSnapshot
+  description: Multi-account total position at a specific period boundary.

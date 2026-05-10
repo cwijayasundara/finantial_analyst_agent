@@ -81,14 +81,37 @@ CREATE TABLE IF NOT EXISTS memos (
 );
 
 CREATE TABLE IF NOT EXISTS budgets (
-    id              VARCHAR PRIMARY KEY,           -- e.g. 'budget_2025_04_category_groceries'
-    period          VARCHAR NOT NULL,              -- 'yyyy_mm' or 'annual:yyyy'
-    scope_type      VARCHAR NOT NULL,              -- 'category' | 'merchant'
+    id              VARCHAR PRIMARY KEY,
+    period          VARCHAR NOT NULL,
+    scope_type      VARCHAR NOT NULL,
     scope_id        VARCHAR NOT NULL,
     target_amount   DECIMAL(12,2) NOT NULL,
     notes           VARCHAR,
     source          VARCHAR NOT NULL DEFAULT 'manual',
     UNIQUE(period, scope_type, scope_id)
+);
+
+CREATE TABLE IF NOT EXISTS goals (
+    id              VARCHAR PRIMARY KEY,
+    name            VARCHAR NOT NULL,
+    target_amount   DECIMAL(12,2) NOT NULL,
+    target_date     DATE NOT NULL,
+    scope_type      VARCHAR NOT NULL,
+    scope_id        VARCHAR NOT NULL,
+    status          VARCHAR NOT NULL DEFAULT 'active',
+    started_at      DATE,
+    completed_at    DATE,
+    notes           VARCHAR,
+    UNIQUE(name, target_date)
+);
+
+CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+    id              VARCHAR PRIMARY KEY,
+    period          VARCHAR NOT NULL UNIQUE,
+    total_amount    DECIMAL(14,2) NOT NULL,
+    by_account      JSON,
+    computed_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    notes           VARCHAR
 );
 """
 

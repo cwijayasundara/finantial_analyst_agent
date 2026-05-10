@@ -13,6 +13,7 @@ class AdvisorState(TypedDict, total=False):
     memo_frontmatter: dict[str, Any]
     budget_variances: list[Any]
     findings: list[Any]
+    goal_progress: list[Any]
     low_confidence_merchants: list[dict[str, Any]]
 
     # Populated by flag_uncertainties

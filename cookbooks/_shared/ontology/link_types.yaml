@@ -27,14 +27,35 @@
   from: [Transaction]
   to:   [Transaction]
 - id: cites
-  from: [Memo, Decision]
-  to:   [Statement, Merchant, Subscription, Transaction]
+  from: [Memo, Decision, Recommendation]
+  to:   [Statement, Merchant, Subscription, Transaction, Budget, Goal]
 - id: triggered_by
   from: [Decision]
   to:   [Memo]
 - id: affects
   from: [Decision]
-  to:   [Merchant, Subscription, Category]
+  to:   [Merchant, Subscription, Category, Statement, Memo, Recommendation, Budget, Goal, NetWorthSnapshot]
 - id: flags
   from: [Annotation]
   to:   [Transaction]
+# --- P4 ---
+- id: target_for
+  from: [Budget]
+  to:   [Category, Merchant]
+- id: evaluated_in
+  from: [Budget]
+  to:   [Memo]
+# --- P5 ---
+- id: recommends_for
+  from: [Recommendation]
+  to:   [Memo, Budget, Merchant, Subscription, Category]
+- id: flagged_in
+  from: [ConceptReview]
+  to:   [Memo, Merchant, Subscription, Decision]
+# --- P7 ---
+- id: targets
+  from: [Goal]
+  to:   [Account, Category]
+- id: assessed_in
+  from: [Goal]
+  to:   [Memo]

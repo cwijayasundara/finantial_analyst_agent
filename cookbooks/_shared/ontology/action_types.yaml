@@ -28,3 +28,17 @@
   description: Queue a concept for human review.
   function: cookbooks._shared.ontology.functions.actions:flag_concept_review
   scopes: [analyst, advisor]
+# --- P4 ---
+- id: set_budget
+  description: Create or update a Budget wiki page + DB row.
+  function: cookbooks._shared.ontology.functions.actions:upsert_budget
+  scopes: [system, analyst, advisor]
+# --- P7 ---
+- id: set_goal
+  description: Create or update a Goal wiki page + DB row.
+  function: cookbooks._shared.ontology.functions.actions:upsert_goal
+  scopes: [system, analyst, advisor, user]
+- id: snapshot_net_worth
+  description: Persist a NetWorthSnapshot for a given period.
+  function: cookbooks._shared.ontology.functions.actions:snapshot_net_worth
+  scopes: [system, analyst]

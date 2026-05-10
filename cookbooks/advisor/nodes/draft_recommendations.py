@@ -48,6 +48,32 @@ def draft_recommendations_node(state: AdvisorState) -> AdvisorState:
             "confidence": 0.65,
         })
 
+    # goal_off_track: any active goal where on_track is False
+    for g in state.get("goal_progress", []):
+        if getattr(g, "on_track", True):
+            continue
+        body = (
+            f"## You're behind on goal [[{g.goal_id}]]\n\n"
+            f"After {g.months_elapsed} of {g.months_total} months, "
+            f"progress on **{g.name}** is £{g.current_amount} versus a "
+            f"£{g.target_amount} target by {g.target_date}. "
+            f"To finish on time, you'd need to put aside £{g.monthly_required} "
+            f"per month for the remaining {max(g.months_total - g.months_elapsed, 1)} "
+            "month(s)."
+        )
+        drafts.append({
+            "kind": "goal_off_track",
+            "body_md": body,
+            "citations": [g.goal_id],
+            "cited_values": [
+                str(g.current_amount), str(g.target_amount),
+                str(g.monthly_required),
+                str(g.months_elapsed), str(g.months_total),
+                str(max(g.months_total - g.months_elapsed, 1)),
+            ],
+            "confidence": 0.7,
+        })
+
     # anomaly_investigate: merchant_outlier with z > 3
     for f in state.get("findings", []):
         if getattr(f, "kind", "") != "merchant_outlier":
