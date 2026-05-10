@@ -17,7 +17,7 @@ def test_settings_loads_paths_from_env(tmp_workspace: Path):
 
 def test_settings_llm_defaults(tmp_workspace: Path):
     s = load_settings()
-    assert s.llm.model == "ollama:gemma4:e4b"
+    assert s.llm.model == "ollama:qwen3.6:35b"
     assert s.llm.ollama_base_url == "http://127.0.0.1:11434"
 
 

@@ -7,7 +7,7 @@ Deterministic ETL pipeline that turns PDF bank/credit-card statements into:
 - `graph/kuzu.db` (+ `graph/snapshots/graph.jsonl`) — derived typed graph
 
 Implemented as a LangGraph `StateGraph` with one optional LLM node
-(`gemma4:e4b` via Ollama for merchant categorisation). Every other node
+(`qwen3.6:35b` via Ollama for merchant categorisation). Every other node
 is deterministic.
 
 ## Pipeline
@@ -61,7 +61,7 @@ python -m cookbooks.statement_ingester watch sources/
 
 | Layer | Mechanism |
 |---|---|
-| parse | `parsed/<sha256>.md` cache |
+| parse | `parsed/<source-subdir>/<source-stem>.md` cache (mirrors `sources/`) |
 | upsert | sha256-based short-circuit on `statements`; `INSERT OR IGNORE` on transactions |
 | categorise | `data/rules.yaml` lookup before any LLM call |
 | recurring | DuckDB candidate set; subscription pages overwritten in place |

@@ -39,7 +39,7 @@ class Paths(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    model: str = "ollama:gemma4:e4b"
+    model: str = "ollama:qwen3.6:35b"
     embed_model: str = "ollama:nomic-embed-text"
     ollama_base_url: str = "http://127.0.0.1:11434"
 
@@ -85,7 +85,7 @@ def load_settings() -> Settings:
         out=Path(os.environ.get("PFH_OUT_DIR", "./out")),
     )
     llm = LLMConfig(
-        model=os.environ.get("PFH_LLM_MODEL", "ollama:gemma4:e4b"),
+        model=os.environ.get("PFH_LLM_MODEL", "ollama:qwen3.6:35b"),
         embed_model=os.environ.get("PFH_EMBED_MODEL", "ollama:nomic-embed-text"),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
     )

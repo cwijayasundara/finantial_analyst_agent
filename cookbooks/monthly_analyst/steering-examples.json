@@ -1,0 +1,24 @@
+{
+  "examples": [
+    {
+      "user": "Run the monthly memo for April 2025.",
+      "command": "python -m cookbooks.monthly_analyst analyse 2025-04",
+      "outcome": "Writes wiki/memos/memo_2025_04.md plus a Decision page. Prints a Rich table with transaction count, statement count, finding count."
+    },
+    {
+      "user": "Generate memos for all of 2025.",
+      "command": "python -m cookbooks.monthly_analyst backfill-memos 2025-01 2025-12",
+      "outcome": "Iterates 12 months. Skips any period whose memo file already exists. Final summary line shows ok / errored / processed counts."
+    },
+    {
+      "user": "Why did we say merchant X was a subscription back in March?",
+      "command": "python -m cookbooks.monthly_analyst replay <decision_id>",
+      "outcome": "Reconstructs the wiki + ontology fingerprints recorded at decision time. Flags drift if the wiki has changed since."
+    },
+    {
+      "user": "Re-publish a memo I edited the inputs for.",
+      "command": "python -m cookbooks.monthly_analyst backfill-memos 2025-04 2025-04 --overwrite",
+      "outcome": "Bypasses the existing-file skip. Emits a fresh Decision page (different ts) so the edit is auditable."
+    }
+  ]
+}

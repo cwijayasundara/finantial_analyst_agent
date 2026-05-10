@@ -1,15 +1,25 @@
 """parse_pdf node — Docling primary, MarkItDown fallback.
 
-Idempotent: cache key is SHA-256 of the PDF bytes; cached output lives at
-`{parsed}/<sha256>.md`. The node always returns the cache path even when
-serving from cache.
+Idempotent. The cache layout mirrors the source directory so a human can
+tell credit-card output from savings output at a glance:
+
+    sources/crdit_stmt/Statement_1588_Apr-25.pdf
+        -> parsed/crdit_stmt/Statement_1588_Apr-25.md
+
+    sources/savings_stmt/2026_May_Statement.pdf
+        -> parsed/savings_stmt/2026_May_Statement.md
+
+The PDF SHA-256 is still computed and threaded through state — downstream
+nodes use it as the idempotency key against the DuckDB `statements` table.
+On a cache hit we cannot tell which parser produced the cached markdown,
+so we default to "docling" (the primary chain entry).
 """
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 
-from cookbooks._shared.config import load_settings
+from cookbooks._shared.config import Settings, load_settings
 from cookbooks.statement_ingester.state import IngestState
 
 CHUNK = 65536
@@ -21,6 +31,16 @@ def compute_sha256(path: Path) -> str:
         while chunk := f.read(CHUNK):
             h.update(chunk)
     return h.hexdigest()
+
+
+def cache_path_for(settings: Settings, pdf: Path) -> Path:
+    """Return the parsed-md cache path for a source PDF.
+
+    The parsed output mirrors the source directory layout so that
+    credit-card and savings statements live in distinct subfolders and the
+    filename matches the source PDF stem.
+    """
+    return settings.paths.parsed / pdf.parent.name / f"{pdf.stem}.md"
 
 
 def _try_docling(pdf: Path) -> str | None:
@@ -63,14 +83,15 @@ def parse_pdf_node(state: IngestState) -> IngestState:
         return {**state, "errors": [*state.get("errors", []), f"source not found: {src}"]}
 
     sha = compute_sha256(src)
-    settings.paths.parsed.mkdir(parents=True, exist_ok=True)
-    cache_md = settings.paths.parsed / f"{sha}.md"
+    cache_md = cache_path_for(settings, src)
+    cache_md.parent.mkdir(parents=True, exist_ok=True)
+
     if cache_md.exists() and cache_md.stat().st_size > 0:
         return {
             **state,
             "sha256": sha,
             "parsed_md_path": str(cache_md),
-            "parser_used": _read_parser_used(settings.paths.parsed / f"{sha}.parser") or "docling",
+            "parser_used": "docling",
             "errors": state.get("errors", []),
         }
 
@@ -96,7 +117,6 @@ def parse_pdf_node(state: IngestState) -> IngestState:
         }
 
     cache_md.write_text(body, encoding="utf-8")
-    (settings.paths.parsed / f"{sha}.parser").write_text(used or "")
     return {
         **state,
         "sha256": sha,
@@ -104,7 +124,3 @@ def parse_pdf_node(state: IngestState) -> IngestState:
         "parser_used": used,
         "errors": state.get("errors", []),
     }
-
-
-def _read_parser_used(p: Path) -> str | None:
-    return p.read_text().strip() if p.exists() else None

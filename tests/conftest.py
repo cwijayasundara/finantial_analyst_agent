@@ -22,6 +22,7 @@ def tmp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
     monkeypatch.setenv("PFH_GRAPH_DIR",   str(tmp_path / "graph"))
     monkeypatch.setenv("PFH_OUT_DIR",     str(tmp_path / "out"))
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    monkeypatch.setenv("PFH_LLM_MODEL",   "ollama:gemma4:e4b")
+    monkeypatch.setenv("PFH_LLM_MODEL",   "ollama:qwen3.6:35b")
+    monkeypatch.delenv("PFH_ALLOW_REMOTE_LLM", raising=False)
 
     yield tmp_path

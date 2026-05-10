@@ -15,11 +15,12 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 from cookbooks._shared.db import connect_readonly, connect_readwrite
 from cookbooks._shared.ontology.functions.actions import upsert_statement
@@ -140,27 +141,51 @@ def _normalise_amount(raw: str) -> Decimal:
 
 # Strip Docling column-name prefixes ("Date ", "Descript on ", "Type ",
 # "Money I (£) ", "Money Out (£) ", "Bal nce (£) ", "Column …") plus the
-# trailing " ." every cell carries. Returns "" for the "blank" sentinel.
+# trailing " ." every cell carries.
+#
+# Each prefix alternative requires a *value* after it — either the "(£)"
+# token followed by whitespace, or a direct lookahead at a number/sign. This
+# prevents header cells like "Money In (£)" (no trailing value) from being
+# truncated to garbage. Body cells without parens (Docling's page-1 quirk
+# where it emits a bare "Money", "Money I bla" or "Money 2,500.00") are
+# either matched by the no-parens lookahead alternatives or fall through
+# to the blank-sentinel set below.
 _CELL_PREFIX = re.compile(
     r"^\s*(?:"
-    r"Column\s+[^.]*?\s*\.\s*$"          # whole header cell -> empty after strip
+    r"Column\s+[^.]*?\s*\.\s*$"               # whole header cell -> empty
     r"|Date\s+"
     r"|Descript\s*on\s+"
     r"|Description\s+"
     r"|Type\s+"
-    r"|Money\s*I\s*\(£\)\s*"             # "Money I (£) " (Docling drops the n)
-    r"|Money\s*In\s*\(£\)\s*"
-    r"|Money\s*Out\s*\(£\)\s*"
-    r"|Bal\s*nce\s*\(£\)\s*"
-    r"|Balance\s*\(£\)\s*"
+    r"|Money\s+Out\s+\(£\)\s+"                # "Money Out (£) <value>"
+    r"|Money\s+Out\s+(?=[\d£$\-])"            # "Money Out <number>"
+    r"|Money\s*I(?:n)?\s+\(£\)\s+"            # "Money I[n] (£) <value>"
+    r"|Money\s*I(?:n)?\s+(?=[\d£$\-])"        # "Money I[n] <number>"
+    r"|Money\s+(?=[\d£$\-])"                  # bare "Money <number>"
+    r"|Bal\s*nce\s+\(£\)\s+"
+    r"|Bal\s*nce\s+(?=[\d£$\-])"
+    r"|Balance\s+\(£\)\s+"
+    r"|Balance\s+(?=[\d£$\-])"
     r")",
+)
+
+# Blank-sentinel forms Docling emits for empty money cells. Beyond literal
+# "bla[k]" / "blank", page-1 savings cells can come through as bare
+# "Money", "Money I", "Money In", or "Money I bla" with no value at all.
+_BLANK_SENTINELS = re.compile(
+    r"^(?:"
+    r"bla\s*k?"
+    r"|blank"
+    r"|money(?:\s+i(?:n)?)?(?:\s+bla\s*k?)?"  # Money / Money I[n] / Money I bla[k]
+    r")$",
+    re.IGNORECASE,
 )
 
 
 def _strip_cell_artefacts(s: str) -> str:
     """Strip Docling column-name prefixes + trailing ` .` from a cell.
 
-    Returns "" for the "blank" sentinel ("bla k", "blank", or empty).
+    Returns "" for the "blank" sentinel ("bla k", "blank", bare "Money", or empty).
     """
     if s is None:
         return ""
@@ -173,12 +198,23 @@ def _strip_cell_artefacts(s: str) -> str:
     # Strip trailing " ." or "." (Docling artefact)
     t = re.sub(r"\s*\.\s*$", "", t)
     t = t.strip()
-    # Blank sentinel: "bla k" (Docling-mangled "blank") or literal "blank"
-    if re.fullmatch(r"bla\s*k", t, flags=re.IGNORECASE):
-        return ""
-    if t.lower() == "blank":
+    if _BLANK_SENTINELS.fullmatch(t):
         return ""
     return t
+
+
+def _try_normalise_amount(s: str) -> Decimal | None:
+    """Best-effort numeric parse: returns None on any failure.
+
+    Used by the savings parser to fall through from Money In to Money Out
+    when Docling has emitted junk like "Money I bla" in the Money In cell.
+    """
+    if not s:
+        return None
+    try:
+        return _normalise_amount(s)
+    except Exception:
+        return None
 
 
 _MONTH_ABBR = {
@@ -331,17 +367,187 @@ def _parse_savings_rows(
             if date_raw:
                 skipped += 1
             continue
+        # Try Money In first; if it doesn't parse as a number (Docling page-1
+        # quirk where the cell comes through as "Money" or "Money I bla"),
+        # fall through to Money Out instead of skipping the row entirely.
+        amount_in = _try_normalise_amount(money_in)
+        amount_out = _try_normalise_amount(money_out)
+        if amount_in is not None:
+            amount = amount_in
+        elif amount_out is not None:
+            amount = -amount_out
+        else:
+            skipped += 1
+            continue
+        txns.append(Transaction(
+            id=f"txn_{uuid.uuid4().hex[:12]}",
+            date=d,
+            amount=amount,
+            raw_description=desc,
+            account_id=account_id,
+            statement_id=statement_id,
+        ))
+    return txns, skipped
+
+
+# A "DD MONTH" date is exactly 2 tokens: a 1-2 digit day + an alpha month.
+# Used to count how many distinct date values a Docling-merged cell holds.
+_DATE_TOKEN_PAIR = re.compile(r"\b(\d{1,2})\s+([A-Za-z]+)\b")
+# A credit-card amount: digits + comma thousands + decimal, optional CR suffix.
+_AMOUNT_TOKEN = re.compile(r"([\d,]+\.\d{2})\s*(CR)?")
+
+
+def _is_credit_header(joined_lower: str) -> bool:
+    """Old & new credit formats both have date_of_transaction + amount + description."""
+    return ("date of transaction" in joined_lower
+            and "amount" in joined_lower
+            and "description" in joined_lower)
+
+
+def _credit_col_indices(header_cells: list[str]) -> dict[str, int | list[int] | None]:
+    """Resolve column indices from a credit-card table header row."""
+    def _col(name: str) -> int | None:
+        for j, h in enumerate(header_cells):
+            if name in h.lower():
+                return j
+        return None
+    return {
+        "date_txn": _col("date of transaction"),
+        "card": _col("card ending"),
+        "amount": _col("amount"),
+        "desc_cols": [j for j, h in enumerate(header_cells) if "description" in h.lower()],
+    }
+
+
+def _row_get(row: list[str], idx: int | None) -> str:
+    """Safe row[idx].strip() with `None` index → empty string."""
+    if idx is None or idx >= len(row):
+        return ""
+    return row[idx].strip()
+
+
+def _is_fragment_row(row: list[str], cols: dict[str, int | list[int] | None]) -> bool:
+    """A fragment is a continuation of the preceding transaction, not a starter.
+
+    For new-format statements (with a Card Ending column): a row missing its
+    card cell is a continuation. (Each PDF transaction begins with a card
+    number; Docling preserves that anchor in the first row of every txn.)
+
+    For old-format statements (no card column): a row is a fragment if it
+    is missing both date_of_transaction AND amount — neither alone is enough
+    to be the start of a new transaction.
+    """
+    if cols["card"] is not None:
+        return not _row_get(row, cols["card"])
+    return not _row_get(row, cols["date_txn"]) and not _row_get(row, cols["amount"])
+
+
+def _group_credit_blocks(
+    rows: list[list[str]],
+    cols: dict[str, int | list[int] | None],
+) -> list[list[list[str]]]:
+    """Walk the credit data rows and group consecutive (data_row, *fragment_rows)
+    sequences. The first row in a block is always a non-fragment; trailing
+    fragment rows hold the second / third transaction's column values when
+    Docling has split a multi-row PDF region across markdown rows."""
+    blocks: list[list[list[str]]] = []
+    for row in rows:
+        if _is_fragment_row(row, cols):
+            if blocks:
+                blocks[-1].append(row)
+            # else: leading orphan, nothing to attach to → drop.
+        else:
+            blocks.append([row])
+    return blocks
+
+
+def _expand_block_to_txns(
+    block: list[list[str]],
+    cols: dict[str, int | list[int] | None],
+    *,
+    account_id: str,
+    statement_id: str,
+    sign_convention: Literal["bank", "credit"],
+    statement_year: int,
+    statement_month: int,
+) -> tuple[list[Transaction], int]:
+    """Expand a stitched block into K transactions.
+
+    K is determined by the number of distinct DD-MONTH dates found in the
+    block's date-of-transaction cells (post-stitch). Other columns contribute
+    per-row values; merged cells (e.g. "141.18 40.00") are split positionally.
+    Per-column lists shorter than K are padded — descriptions are best-effort
+    and may be empty for the second/third transaction in a fully-merged row.
+    """
+    # 1. Gather per-column values from every row in the block.
+    def col_values(idx: int | None) -> list[str]:
+        if idx is None:
+            return []
+        return [r[idx].strip() for r in block if idx < len(r) and r[idx].strip()]
+
+    date_raw_values = col_values(cols["date_txn"])
+    amount_raw_values = col_values(cols["amount"])
+    desc_col_values: list[list[str]] = [
+        col_values(c) for c in (cols["desc_cols"] or [])
+    ]
+
+    # 2. Expand date cells: each cell may itself contain multiple "DD MONTH"
+    #    pairs (Docling merging). Order is preserved.
+    expanded_dates: list[str] = []
+    for cell in date_raw_values:
+        for m in _DATE_TOKEN_PAIR.finditer(cell):
+            expanded_dates.append(f"{m.group(1)} {m.group(2)}")
+    K = len(expanded_dates)
+    if K == 0:
+        return [], 0
+
+    # 3. Same for amount cells.
+    expanded_amounts: list[tuple[str, bool]] = []
+    for cell in amount_raw_values:
+        for m in _AMOUNT_TOKEN.finditer(cell):
+            expanded_amounts.append((m.group(1), m.group(2) is not None))
+
+    # If we have fewer amounts than dates, treat as unparseable garbage.
+    if len(expanded_amounts) < K:
+        return [], 1
+
+    # 4. Description per transaction. For each i in 0..K-1, take the i-th
+    #    value from each description column (positional), then space-join.
+    descriptions: list[str] = []
+    for i in range(K):
+        parts: list[str] = []
+        for col_vals in desc_col_values:
+            if i < len(col_vals):
+                parts.append(col_vals[i])
+        descriptions.append(" ".join(parts).strip())
+
+    txns: list[Transaction] = []
+    skipped = 0
+    for i in range(K):
+        date_raw = expanded_dates[i]
+        amount_raw, is_credit = expanded_amounts[i]
+        desc = descriptions[i]
+        # Skip "BALANCE FROM PREVIOUS STATEMENT" preamble rows that may have
+        # leaked through with a parseable date (defensive).
+        if "balance from previous statement" in desc.lower():
+            continue
+        d = _parse_dd_month_with_year(date_raw, statement_year, statement_month)
+        if d is None:
+            skipped += 1
+            continue
         try:
-            if money_in:
-                amount = _normalise_amount(money_in)
-            elif money_out:
-                amount = -_normalise_amount(money_out)
-            else:
-                skipped += 1
-                continue
+            amount = _normalise_amount(amount_raw)
         except Exception:
             skipped += 1
             continue
+        # Convention: positive = income/credit/refund; negative = expense.
+        # CR suffix on a credit-card row → payment/refund credited to the card.
+        if is_credit:
+            amount = abs(amount)
+        else:
+            amount = -abs(amount)
+        if not desc:
+            desc = "(missing description)"
         txns.append(Transaction(
             id=f"txn_{uuid.uuid4().hex[:12]}",
             date=d,
@@ -357,129 +563,67 @@ def _parse_credit_rows(
     md: str, *, account_id: str, statement_id: str,
     sign_convention: Literal["bank", "credit"],
 ) -> tuple[list[Transaction], int]:
-    """Halifax credit card: Card Ending | Date txn | Date entered | Desc | Desc | Amount £."""
+    """Halifax credit card: Card Ending | Date txn | Date entered | Desc | Desc | Amount £.
+
+    Recovery for Docling table-extraction quirks:
+
+    1. Vertical split — one transaction emitted across two markdown rows
+       where each row populates a complementary subset of cells (e.g. card
+       + city + amount on row N; date + description on row N+1). Stitched by
+       grouping fragment rows (no date_of_transaction AND no amount) into
+       the preceding non-fragment row.
+
+    2. Horizontal merge — two transactions packed into one markdown row,
+       with cells like ``"17 MARCH 18 MARCH"`` / ``"141.18 40.00"`` /
+       ``"1588 1588"``. Split positionally inside `_expand_block_to_txns`.
+    """
     period = _extract_statement_period(md)
     if period is None:
         return [], 0
     statement_year, statement_month = period
 
-    txns: list[Transaction] = []
-    skipped = 0
     rows = [r for r in (_split_pipe_row(line) for line in md.splitlines()) if r is not None]
 
-    def _is_credit_header(joined_lower: str) -> bool:
-        # Old & new format: both have "date of transaction" and "amount".
-        # New format additionally has a leading "card ending" column. Accept
-        # either by keying off the date-of-transaction signal + amount.
-        return ("date of transaction" in joined_lower
-                and "amount" in joined_lower
-                and "description" in joined_lower)
+    txns: list[Transaction] = []
+    skipped = 0
 
-    # The credit table header repeats across pages; iterate, finding each header
-    # and parsing rows beneath until the next header or end.
+    # The credit table header repeats across pages; iterate, find each header,
+    # and process the rows beneath as a contiguous segment.
     i = 0
     while i < len(rows):
-        cells = rows[i]
-        joined = " | ".join(cells).lower()
-        if _is_credit_header(joined):
-            header_cells = cells
-            # Determine column indices on this header.
-            def _col(name: str, start: int = 0) -> int | None:
-                for j, h in enumerate(header_cells[start:], start=start):
-                    if name in h.lower():
-                        return j
-                return None
-            idx_date_txn = _col("date of transaction")
-            idx_card = _col("card ending")
-            idx_amount = _col("amount")
-            # Two "Description" columns: find both.
-            desc_cols = [j for j, h in enumerate(header_cells) if "description" in h.lower()]
+        joined = " | ".join(rows[i]).lower()
+        if not _is_credit_header(joined):
             i += 1
-            while i < len(rows):
-                row = rows[i]
-                joined2 = " | ".join(row).lower()
-                # Stop if we hit another header or a "New balance" footer row.
-                if _is_credit_header(joined2):
-                    break
-                if "new balance" in joined2:
-                    i += 1
-                    continue
-                if idx_date_txn is None or idx_amount is None:
-                    i += 1
-                    continue
-                if len(row) <= max(idx_date_txn, idx_amount):
-                    i += 1
-                    continue
-                date_raw = row[idx_date_txn].strip()
-                amount_raw = row[idx_amount].strip()
-                # Concatenate description columns.
-                desc_parts = [row[j].strip() for j in desc_cols if j < len(row) and row[j].strip()]
-                desc = " ".join(desc_parts).strip()
-                # Skip rows with no usable date/amount.
-                if not date_raw or not amount_raw:
-                    i += 1
-                    continue
-                # Skip "BALANCE FROM PREVIOUS STATEMENT" preamble row.
-                if "balance from previous statement" in desc.lower():
-                    i += 1
-                    continue
-                # Detect merged-cell garbage: multiple amounts (e.g. "2,695.26 CR 11.99")
-                # or multiple dates (e.g. "08 SEPTEMBER 11 AUGUST"). Both rendered
-                # as a single cell containing two values.
-                date_tokens = date_raw.split()
-                # A clean date is "DD MONTH" → exactly 2 tokens (digit + word).
-                if len(date_tokens) != 2:
-                    skipped += 1
-                    i += 1
-                    continue
-                # Amount: expect single number, optionally with " CR" suffix.
-                # Garbage like "2,695.26 CR 11.99" or "47.60 75.30" → skip.
-                amt_match = re.fullmatch(
-                    r"\s*([\d,]+\.\d{2})\s*(CR)?\s*", amount_raw,
-                )
-                if not amt_match:
-                    skipped += 1
-                    i += 1
-                    continue
-                d = _parse_dd_month_with_year(date_raw, statement_year, statement_month)
-                if d is None:
-                    skipped += 1
-                    i += 1
-                    continue
-                try:
-                    amount = _normalise_amount(amt_match.group(1))
-                except Exception:
-                    skipped += 1
-                    i += 1
-                    continue
-                is_credit = amt_match.group(2) is not None
-                # Convention: positive = income/credit/refund; negative = expense.
-                # On a credit-card statement, a plain amount is a debit (purchase),
-                # and " CR" suffix is a payment/refund credited to the card.
-                if sign_convention == "credit":
-                    if is_credit:
-                        amount = abs(amount)  # payment to card → positive
-                    else:
-                        amount = -abs(amount)  # purchase → negative
-                else:
-                    # Defensive: if a non-credit caller hits this branch, mirror.
-                    if is_credit:
-                        amount = abs(amount)
-                    else:
-                        amount = -abs(amount)
-                if not desc:
-                    desc = "(missing description)"
-                txns.append(Transaction(
-                    id=f"txn_{uuid.uuid4().hex[:12]}",
-                    date=d,
-                    amount=amount,
-                    raw_description=desc,
-                    account_id=account_id,
-                    statement_id=statement_id,
-                ))
+            continue
+        cols = _credit_col_indices(rows[i])
+        if cols["date_txn"] is None or cols["amount"] is None:
+            i += 1
+            continue
+        # Collect data rows for this segment.
+        i += 1
+        segment: list[list[str]] = []
+        while i < len(rows):
+            row = rows[i]
+            joined2 = " | ".join(row).lower()
+            if _is_credit_header(joined2):
+                break
+            if "new balance" in joined2:
                 i += 1
-        else:
+                continue
+            segment.append(row)
             i += 1
+
+        # Group into blocks (each = one non-fragment row + 0..n fragment continuations).
+        for block in _group_credit_blocks(segment, cols):
+            block_txns, block_skipped = _expand_block_to_txns(
+                block, cols,
+                account_id=account_id, statement_id=statement_id,
+                sign_convention=sign_convention,
+                statement_year=statement_year, statement_month=statement_month,
+            )
+            txns.extend(block_txns)
+            skipped += block_skipped
+
     return txns, skipped
 
 

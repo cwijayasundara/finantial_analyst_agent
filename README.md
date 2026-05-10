@@ -13,7 +13,7 @@ for the full design.
 
 ```bash
 bash scripts/setup.sh                                       # one-time
-ollama pull gemma4:e4b nomic-embed-text                     # one-time
+ollama pull qwen3.6:35b nomic-embed-text                    # one-time
 ollama serve &                                              # background
 
 # Ingest your statements

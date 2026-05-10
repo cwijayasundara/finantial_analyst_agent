@@ -1,7 +1,7 @@
 """Integration smoke test against real source PDFs.
 
 Slow. Skipped unless `PFH_RUN_INTEGRATION=1` is set AND the user has the
-real PDFs in `sources/` AND Ollama is running with `gemma4:e4b`.
+real PDFs in `sources/` AND Ollama is running with `qwen3.6:35b`.
 """
 from __future__ import annotations
 

@@ -7,9 +7,13 @@ import pytest
 
 from cookbooks._shared.config import load_settings
 from cookbooks._shared.ontology.functions.actions import (
+    _decision_id,
+    _decision_affects,
     invoke_action,
+    publish_monthly_memo,
     upsert_merchant,
     upsert_statement,
+    upsert_subscription,
 )
 
 
@@ -90,3 +94,169 @@ def test_invoke_action_rejects_scope_violation(tmp_workspace: Path):
             action_id="publish_monthly_memo", actor="ingester",
             inputs={"period": "2026-01", "body_md": "x", "citations": []},
         )
+
+
+# --- Decision-as-first-class-node (borrowed from context_graphs) ---
+
+
+class TestDecisionPages:
+    def test_decision_id_is_deterministic(self):
+        assert _decision_id("2026-05-10T08:00:00+00:00", "upsert_merchant", "ingester") \
+            == _decision_id("2026-05-10T08:00:00+00:00", "upsert_merchant", "ingester")
+
+    def test_decision_id_actor_normalised(self):
+        # Non-alnum chars in actor must be sanitised so the filename is safe
+        out = _decision_id("2026-05-10T08:00:00+00:00", "upsert_merchant", "User Name!")
+        assert "user_name_" in out
+        assert "!" not in out and " " not in out
+
+    def test_affects_links_for_upsert_merchant(self):
+        # inputs is the frontmatter dict; `id` carries the formatted page id
+        assert _decision_affects(
+            "upsert_merchant", {"id": "merchant_amazon"}
+        ) == [{"to": "merchant_amazon", "type": "affects"}]
+
+    def test_affects_links_for_upsert_statement(self):
+        assert _decision_affects(
+            "upsert_statement", {"id": "stmt_x"}
+        ) == [{"to": "stmt_x", "type": "affects"}]
+
+    def test_affects_links_for_upsert_subscription(self):
+        assert _decision_affects(
+            "upsert_subscription", {"id": "sub_spotify"}
+        ) == [{"to": "sub_spotify", "type": "affects"}]
+
+    def test_affects_links_empty_for_unknown_action(self):
+        assert _decision_affects("future_action", {"id": "x"}) == []
+
+
+def test_upsert_merchant_writes_decision_page(tmp_workspace: Path):
+    upsert_merchant(
+        actor="ingester", merchant_id="tesco",
+        canonical_name="Tesco", category="groceries",
+        aliases=["TESCO STORES 4521"],
+    )
+    s = load_settings()
+    decisions = list((s.paths.wiki / "decisions").glob("*.md"))
+    assert decisions, "expected at least one decision page written"
+    body = decisions[0].read_text()
+    assert "upsert_merchant" in body
+    assert "[[merchant_tesco]]" in body  # affects wikilink
+    assert "ingester" in body
+
+
+def test_audit_jsonl_includes_decision_id(tmp_workspace: Path):
+    upsert_merchant(
+        actor="ingester", merchant_id="costa",
+        canonical_name="Costa", category="dining", aliases=[],
+    )
+    s = load_settings()
+    audit_lines = [
+        json.loads(line) for line in s.paths.audit_log.read_text().splitlines()
+    ]
+    assert audit_lines, "audit log must have at least one row"
+    last = audit_lines[-1]
+    assert "decision_id" in last
+    assert last["decision_id"].startswith("decision_upsert_merchant_ingester_")
+
+
+def test_decision_page_has_yaml_frontmatter(tmp_workspace: Path):
+    import yaml
+    # FK constraint: subscription requires merchant row to exist first
+    upsert_merchant(
+        actor="ingester", merchant_id="netflix",
+        canonical_name="Netflix", category="subscription", aliases=[],
+    )
+    upsert_subscription(
+        actor="ingester", subscription_id="netflix",
+        merchant_id="netflix", cadence="monthly",
+        expected_amount=11.99, last_seen="2026-04-01", confidence=0.95,
+    )
+    s = load_settings()
+    pages = sorted((s.paths.wiki / "decisions").glob("*.md"))
+    page = pages[-1]
+    text = page.read_text()
+    fm_text = text.split("---\n", 2)[1]
+    fm = yaml.safe_load(fm_text)
+    assert fm["type"] == "Decision"
+    assert fm["action_id"] == "upsert_subscription"
+    assert fm["actor"] == "ingester"
+    assert fm["decision_class"] == "operational_write"
+    assert fm["wiki_fingerprint"]
+    assert fm["ontology_fingerprint"]
+    assert fm["links"] == [{"to": "sub_netflix", "type": "affects"}]
+
+
+# --- P2 Task 1: publish_monthly_memo ---
+
+
+class TestPublishMonthlyMemo:
+    def test_writes_memo_page(self, tmp_workspace: Path):
+        page_id = publish_monthly_memo(
+            actor="analyst",
+            period="2025_04",
+            body_md="# April 2025\n\nTotal spend £123.45.\n",
+            citations=["stmt_credit_1588_2025_04", "merchant_amazon"],
+            confidence=0.9,
+        )
+        assert page_id == "memo_2025_04"
+        s = load_settings()
+        page = s.paths.wiki / "memos" / "memo_2025_04.md"
+        assert page.exists()
+        body = page.read_text()
+        assert "# April 2025" in body
+        # citations rendered as wikilinks
+        assert "[[stmt_credit_1588_2025_04]]" in body
+        assert "[[merchant_amazon]]" in body
+
+    def test_emits_decision_page(self, tmp_workspace: Path):
+        publish_monthly_memo(
+            actor="analyst",
+            period="2025_05",
+            body_md="# May 2025",
+            citations=[],
+            confidence=0.8,
+        )
+        s = load_settings()
+        decisions = list((s.paths.wiki / "decisions").glob("*publish_monthly_memo*"))
+        assert decisions, "expected a Decision page for the memo write"
+        body = decisions[0].read_text()
+        assert "[[memo_2025_05]]" in body  # affects link
+
+    def test_idempotent_overwrites_memo(self, tmp_workspace: Path):
+        publish_monthly_memo(
+            actor="analyst", period="2025_06",
+            body_md="v1", citations=[], confidence=0.5,
+        )
+        publish_monthly_memo(
+            actor="analyst", period="2025_06",
+            body_md="v2", citations=[], confidence=0.7,
+        )
+        s = load_settings()
+        memo_path = s.paths.wiki / "memos" / "memo_2025_06.md"
+        body = memo_path.read_text()
+        assert "v2" in body and "v1" not in body
+        # Two decisions: one per call
+        decisions = list((s.paths.wiki / "decisions").glob("*publish_monthly_memo*"))
+        assert len(decisions) == 2
+
+    def test_invoke_action_path_works(self, tmp_workspace: Path):
+        page_id = invoke_action(
+            action_id="publish_monthly_memo",
+            actor="analyst",
+            inputs={
+                "period": "2025_07",
+                "body_md": "# July",
+                "citations": ["stmt_x"],
+                "confidence": 0.9,
+            },
+        )
+        assert page_id == "memo_2025_07"
+
+    def test_invoke_action_rejects_non_analyst(self, tmp_workspace: Path):
+        with pytest.raises(PermissionError, match="not permitted"):
+            invoke_action(
+                action_id="publish_monthly_memo",
+                actor="ingester",  # only `analyst` is allowed
+                inputs={"period": "2025_08", "body_md": "x", "citations": []},
+            )

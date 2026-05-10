@@ -1,21 +1,51 @@
-.DS_Store
-__pycache__/
-*.pyc
-.venv/
-venv/
+# --- Confidential data — NEVER commit ---
+# Source PDFs (statement scans), parsed Markdown (statement headers
+# contain name/address/sort code/account), the DuckDB ledger, the wiki
+# auto-generated from real transactions, the compiled Kuzu graph, and
+# the OpenAI audit log all derive from real personal finance data.
+sources/
 parsed/
-data/ledger.duckdb
-data/vectors.chroma/
-data/sqlite_fts/
-data/memory/
-graph/kuzu.db
-graph/snapshots/
-graph/audit.jsonl
-graph/review_queue.jsonl
+wiki/
+data/
+graph/
 out/
-*.egg-info/
 .env
 .env.local
+*.duckdb
+*.duckdb.wal
+*.duckdb-tmp
+
+# Local Claude Code session state
+.claude/
+
+# pyvis auto-extracts vis.js/tom-select bundles next to graph.html
+lib/
+
+# --- Python / build artefacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Editor / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Web (if any frontend lands later) ---
 node_modules/
 web/dist/
 web/.vite/
