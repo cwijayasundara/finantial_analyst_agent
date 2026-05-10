@@ -32,6 +32,10 @@ In {period_human} ({period_start} → {period_end}), the ledger recorded \
 
 {anomaly_lines}
 
+## Budget Variance
+
+{budget_lines}
+
 ## Account Net Flow
 
 {account_lines}
@@ -92,6 +96,16 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         f"- [[{acct}]]: £{delta}" for acct, delta in accounts.items()
     ) or "- (no movement)"
 
+    variances = state.get("budget_variance", [])
+    budget_lines_list = []
+    for v in variances:
+        flag_glyph = {"over": "⚠", "under": "✓", "on_track": "·"}.get(v.flag, "·")
+        budget_lines_list.append(
+            f"- {flag_glyph} [[{v.budget_id}]]: actual £{v.actual} vs "
+            f"target £{v.target} ({v.flag} by {v.pct:+.1%})"
+        )
+    budget_lines = "\n".join(budget_lines_list) or "- (no budgets set for this period)"
+
     body = _TEMPLATE.format(
         period_human=_human_period(period),
         period_start=start.isoformat(),
@@ -101,6 +115,7 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         category_lines=category_lines,
         merchant_lines=merchant_lines,
         anomaly_lines=anomaly_lines,
+        budget_lines=budget_lines,
         account_lines=account_lines,
     )
 
@@ -121,6 +136,9 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
             cited_values += [str(f.this_month), str(f.monthly_mean)]
     for v in accounts.values():
         cited_values.append(str(v))
+    for bv in variances:
+        cited_values += [str(bv.target), str(bv.actual), str(bv.delta),
+                         f"{bv.pct:.1%}", f"{bv.pct:+.1%}"]
 
     return {
         **state,

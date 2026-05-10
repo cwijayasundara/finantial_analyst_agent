@@ -36,6 +36,7 @@ from typing import Any
 import yaml
 
 from cookbooks._shared.ontology.functions.actions import (
+    upsert_budget,
     upsert_merchant,
     upsert_statement,
     upsert_subscription,
@@ -50,6 +51,7 @@ _DISPATCH = {
     ),
     "Merchant": (upsert_merchant, {}),
     "Statement": (upsert_statement, {}),
+    "Budget": (upsert_budget, {"target_amount": float}),
 }
 
 

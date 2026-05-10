@@ -22,7 +22,7 @@ def test_init_schema_creates_all_tables(tmp_workspace: Path):
     assert tables == {
         "accounts", "statements", "transactions",
         "merchants", "categories", "patterns",
-        "annotations", "memos",
+        "annotations", "memos", "budgets",
     }
 
 
@@ -33,7 +33,7 @@ def test_init_schema_is_idempotent(tmp_workspace: Path):
     n_tables = conn.execute(
         "SELECT count(*) FROM information_schema.tables WHERE table_schema='main'"
     ).fetchone()[0]
-    assert n_tables == 8
+    assert n_tables == 9
 
 
 def test_seeded_categories(tmp_workspace: Path):

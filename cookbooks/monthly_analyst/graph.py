@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
+from cookbooks.monthly_analyst.nodes.budget_variance import budget_variance_node
 from cookbooks.monthly_analyst.nodes.compute_rollups import compute_rollups_node
 from cookbooks.monthly_analyst.nodes.detect_anomalies import detect_anomalies_node
 from cookbooks.monthly_analyst.nodes.draft_memo import draft_memo_node
@@ -29,6 +30,7 @@ def build_analyst_graph():
     g = StateGraph(AnalystState)
     g.add_node("load_period",      load_period_node)
     g.add_node("compute_rollups",  compute_rollups_node)
+    g.add_node("budget_variance",  budget_variance_node)
     g.add_node("detect_anomalies", detect_anomalies_node)
     g.add_node("draft_memo",       draft_memo_node)
     g.add_node("lint_memo",        lint_memo_node)
@@ -37,7 +39,8 @@ def build_analyst_graph():
 
     g.set_entry_point("load_period")
     g.add_edge("load_period",      "compute_rollups")
-    g.add_edge("compute_rollups",  "detect_anomalies")
+    g.add_edge("compute_rollups",  "budget_variance")
+    g.add_edge("budget_variance",  "detect_anomalies")
     g.add_edge("detect_anomalies", "draft_memo")
     g.add_edge("draft_memo",       "lint_memo")
     g.add_conditional_edges(

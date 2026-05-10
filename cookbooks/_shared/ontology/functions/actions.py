@@ -76,7 +76,8 @@ def _decision_affects(action: str, inputs: dict[str, Any]) -> list[dict[str, str
     """
     if action in {
         "upsert_merchant", "upsert_statement", "upsert_subscription",
-        "publish_monthly_memo", "merge_merchant_aliases",
+        "publish_monthly_memo", "merge_merchant_aliases", "set_budget",
+        "publish_recommendation", "flag_concept_review",
     }:
         page_id = inputs.get("id", "")
         if page_id:
@@ -424,6 +425,74 @@ def upsert_subscription(
     return page_id
 
 
+def upsert_budget(
+    *,
+    actor: str,
+    period: str,
+    scope_type: str,
+    scope_id: str,
+    target_amount: float,
+    notes: str = "",
+    source: str = "manual",
+) -> str:
+    """Write wiki/budgets/<id>.md + DB row + Decision page.
+
+    `period` is 'yyyy_mm' or 'annual:yyyy'.
+    `scope_type` ∈ {'category','merchant'}.
+    `scope_id` matches the category name or merchant_id respectively.
+    Idempotent on (period, scope_type, scope_id) — re-runs update target_amount.
+    """
+    if scope_type not in {"category", "merchant"}:
+        raise ValueError(f"scope_type must be 'category' or 'merchant', got {scope_type!r}")
+
+    settings = load_settings()
+    page_id = f"budget_{period}_{scope_type}_{scope_id}"
+    target_link = (
+        f"cat_{scope_id}" if scope_type == "category"
+        else f"merchant_{scope_id}"
+    )
+
+    init_schema()
+    conn = connect_readwrite()
+    try:
+        conn.execute(
+            "INSERT INTO budgets(id,period,scope_type,scope_id,target_amount,notes,source) "
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT (period, scope_type, scope_id) DO UPDATE SET "
+            "target_amount=excluded.target_amount, notes=excluded.notes, "
+            "source=excluded.source",
+            [page_id, period, scope_type, scope_id, float(target_amount),
+             notes, source],
+        )
+    finally:
+        conn.close()
+
+    fm = {
+        "id": page_id,
+        "type": "Budget",
+        "period": period,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "target_amount": float(target_amount),
+        "notes": notes,
+        "source": source,
+        "updated": datetime.now(UTC).isoformat(),
+    }
+    body = (
+        f"# Budget · {scope_type.title()} `{scope_id}` · {period}\n\n"
+        f"- Target: £{float(target_amount):.2f}\n"
+        f"- Targets: [[{target_link}]]\n"
+        f"- Source: `{source}`\n"
+        + (f"\n{notes}\n" if notes else "")
+    )
+    target = settings.paths.wiki / "budgets" / f"{page_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_frontmatter(fm) + body, encoding="utf-8")
+
+    _audit("set_budget", actor, fm, page_id)
+    return page_id
+
+
 # Stubs for actions delivered in later phases — left here so the action
 # registry resolves and scope checks fire on misuse.
 def merge_merchant_aliases(
@@ -563,12 +632,87 @@ def publish_monthly_memo(
     return page_id
 
 
-def publish_recommendation(*, actor: str, **inputs: Any) -> str:
-    raise NotImplementedError("publish_recommendation lands in P5")
+def publish_recommendation(
+    *,
+    actor: str,
+    period: str,
+    kind: str,
+    body_md: str,
+    citations: list[str],
+    confidence: float = 0.7,
+    status: str = "proposed",
+) -> str:
+    """Write wiki/recommendations/<id>.md + Decision page.
+
+    `kind` ∈ {subscription_cancel, budget_adjust, anomaly_investigate,
+    category_recategorise}. `status` ∈ {proposed, accepted, dismissed,
+    superseded}. Page id is `rec_<period>_<short_hash_of_body>` for
+    deterministic idempotency on identical bodies.
+    """
+    settings = load_settings()
+    body_hash = hashlib.sha256(body_md.encode("utf-8")).hexdigest()[:8]
+    page_id = f"rec_{period}_{body_hash}"
+
+    fm = {
+        "id": page_id, "type": "Recommendation",
+        "period": period, "kind": kind,
+        "cites": list(citations),
+        "confidence": float(confidence),
+        "status": status,
+        "updated": datetime.now(UTC).isoformat(),
+    }
+    citations_md = ""
+    if citations:
+        citations_md = "\n## Citations\n" + "\n".join(
+            f"- [[{c}]]" for c in citations
+        ) + "\n"
+    md = _frontmatter(fm) + body_md.rstrip("\n") + "\n" + citations_md
+    target = settings.paths.wiki / "recommendations" / f"{page_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(md, encoding="utf-8")
+
+    _audit("publish_recommendation", actor, fm, page_id)
+    return page_id
 
 
-def flag_concept_review(*, actor: str, **inputs: Any) -> str:
-    raise NotImplementedError("flag_concept_review lands in P5")
+def flag_concept_review(
+    *,
+    actor: str,
+    concept_id: str,
+    kind: str,
+    reason: str,
+    severity: str = "info",
+) -> str:
+    """Queue a concept for the user to triage manually.
+
+    Writes wiki/annotations/concept_<concept_id>_<short_hash>.md with a
+    [[<concept_id>]] back-link so it shows up on the offending entity's
+    Obsidian page.
+    """
+    settings = load_settings()
+    h = hashlib.sha256(f"{concept_id}|{kind}|{reason}".encode()).hexdigest()[:8]
+    page_id = f"concept_{concept_id}_{h}"
+
+    fm = {
+        "id": page_id, "type": "ConceptReview",
+        "concept_id": concept_id, "kind": kind,
+        "reason": reason, "severity": severity,
+        "status": "open",
+        "updated": datetime.now(UTC).isoformat(),
+    }
+    body = (
+        f"# Concept review: `{kind}` on [[{concept_id}]]\n\n"
+        f"- Severity: `{severity}`\n"
+        f"- Reason: {reason}\n\n"
+        "Resolve by editing this page's `status` to `closed` (or via the "
+        "advisor CLI's `review` subcommand).\n"
+    )
+    target = settings.paths.wiki / "annotations" / f"{page_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_frontmatter(fm) + body, encoding="utf-8")
+
+    _audit("flag_concept_review", actor, fm, page_id)
+    return page_id
 
 
 def invoke_action(*, action_id: str, actor: str, inputs: dict[str, Any]) -> Any:

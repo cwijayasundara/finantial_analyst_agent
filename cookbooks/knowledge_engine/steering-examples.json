@@ -1,0 +1,29 @@
+{
+  "examples": [
+    {
+      "user": "What did I spend on dining in April 2025?",
+      "command": "python -m cookbooks.knowledge_engine ask \"What did I spend on dining in April 2025?\"",
+      "expected_shape": "1-paragraph answer with a £-amount, a [[merchant_*]] citation for the top dining merchant, and a [[memo_2025_04]] reference"
+    },
+    {
+      "user": "Show me the top 5 merchants overall.",
+      "command": "python -m cookbooks.knowledge_engine query \"MATCH (t:Entity)-[:at_merchant]->(m:Entity) WHERE t.type='Transaction' AND m.type='Merchant' RETURN m.id, count(*) AS n ORDER BY n DESC LIMIT 5\"",
+      "expected_shape": "Table of merchant_id + transaction count"
+    },
+    {
+      "user": "These two merchants are the same brand — merge them.",
+      "command": "python -m cookbooks.knowledge_engine merge merchant_amzn merchant_amazon \"duplicate brand\"",
+      "expected_shape": "[green]merged[/]: amzn → amazon (merchant_amazon); a Decision page is auto-emitted"
+    },
+    {
+      "user": "What does the Amazon merchant page say?",
+      "command": "python -m cookbooks.knowledge_engine read merchant_amazon",
+      "expected_shape": "Frontmatter (id, type, canonical_name, category, aliases, updated) + the body section"
+    },
+    {
+      "user": "Why was X categorised as groceries?",
+      "command": "python -m cookbooks.knowledge_engine ask \"Why was [[merchant_x]] categorised as groceries?\"",
+      "expected_shape": "Agent reads the merchant page, finds the original Decision, cites it; suggests using the analyst's replay if details are needed"
+    }
+  ]
+}

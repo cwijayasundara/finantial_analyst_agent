@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS memos (
     body_md         VARCHAR NOT NULL,
     citations       JSON
 );
+
+CREATE TABLE IF NOT EXISTS budgets (
+    id              VARCHAR PRIMARY KEY,           -- e.g. 'budget_2025_04_category_groceries'
+    period          VARCHAR NOT NULL,              -- 'yyyy_mm' or 'annual:yyyy'
+    scope_type      VARCHAR NOT NULL,              -- 'category' | 'merchant'
+    scope_id        VARCHAR NOT NULL,
+    target_amount   DECIMAL(12,2) NOT NULL,
+    notes           VARCHAR,
+    source          VARCHAR NOT NULL DEFAULT 'manual',
+    UNIQUE(period, scope_type, scope_id)
+);
 """
 
 SEED_CATEGORIES = [

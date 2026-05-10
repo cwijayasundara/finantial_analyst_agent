@@ -23,6 +23,9 @@ class AnalystState(TypedDict, total=False):
     # Populated by detect_anomalies
     findings: list[AnomalyFinding]
 
+    # Populated by budget_variance
+    budget_variance: list[Any]  # BudgetVariance — Any avoids circular import
+
     # Populated by draft_memo
     draft_body: str
     draft_citations: list[str]

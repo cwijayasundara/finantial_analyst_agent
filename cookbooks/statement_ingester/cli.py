@@ -835,6 +835,69 @@ def reapply_rules() -> None:
     )
 
 
+budget_app = typer.Typer(no_args_is_help=True, help="Manage spending budgets.")
+app.add_typer(budget_app, name="budget")
+
+
+@budget_app.command("set")
+def budget_set(
+    period: str = typer.Argument(..., help="yyyy_mm or annual:yyyy"),
+    scope_type: str = typer.Argument(..., help="'category' or 'merchant'"),
+    scope_id: str = typer.Argument(..., help="category name or merchant_id"),
+    amount: float = typer.Argument(..., help="target amount in £"),
+    notes: str = typer.Option("", "--notes"),
+) -> None:
+    """Create or update a single Budget row."""
+    from cookbooks._shared.ontology.functions.actions import upsert_budget
+    init_schema()
+    page = upsert_budget(
+        actor="analyst", period=period, scope_type=scope_type,
+        scope_id=scope_id, target_amount=amount, notes=notes,
+    )
+    console.print(f"[green]budget set[/]: {page} = £{amount:.2f}")
+
+
+@budget_app.command("list")
+def budget_list(
+    period: str | None = typer.Argument(None, help="filter by period"),
+) -> None:
+    """List configured budgets."""
+    init_schema()
+    from cookbooks._shared.db import connect_readonly
+    conn = connect_readonly()
+    try:
+        sql = "SELECT id, period, scope_type, scope_id, target_amount FROM budgets"
+        params: list = []
+        if period:
+            sql += " WHERE period = ?"
+            params.append(period)
+        sql += " ORDER BY period, scope_type, scope_id"
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        console.print("[dim](no budgets)[/]")
+        return
+    t = Table(show_header=True, header_style="bold")
+    for c in ("id", "period", "scope_type", "scope_id", "target"):
+        t.add_column(c)
+    for r in rows:
+        t.add_row(r[0], r[1], r[2], r[3], f"£{float(r[4]):.2f}")
+    console.print(t)
+
+
+@budget_app.command("ingest")
+def budget_ingest(
+    csv_path: Path = typer.Argument(..., exists=True, dir_okay=False),
+    manifest_path: Path = typer.Argument(..., exists=True, dir_okay=False),
+) -> None:
+    """Bulk-ingest budgets from a CSV + manifest pair (Record-path)."""
+    from cookbooks._shared.record_ingester import ingest_records
+    init_schema()
+    report = ingest_records(csv_path, manifest_path, actor="analyst")
+    console.print(f"[green]ingested[/] {report.rows_ingested} budget(s)")
+
+
 @app.command()
 def watch(directory: Path = typer.Argument(..., exists=True, file_okay=False)) -> None:
     """Watch <directory> for new PDFs and ingest each as it appears."""
