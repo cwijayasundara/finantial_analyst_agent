@@ -32,6 +32,14 @@ In {period_human} ({period_start} → {period_end}), the ledger recorded \
 
 {anomaly_lines}
 
+## Net Worth
+
+{net_worth_lines}
+
+## Goals progress
+
+{goal_lines}
+
 ## Budget Variance
 
 {budget_lines}
@@ -106,6 +114,38 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         )
     budget_lines = "\n".join(budget_lines_list) or "- (no budgets set for this period)"
 
+    # P7 — Net Worth section
+    nw_total = state.get("net_worth_total")
+    nw_by_account = state.get("net_worth_by_account") or {}
+    nw_delta = state.get("net_worth_delta")
+    if nw_total is None:
+        net_worth_lines = "- (snapshot unavailable)"
+    else:
+        lines = [f"- Total: £{nw_total}"]
+        if nw_delta and nw_delta.delta is not None:
+            sign = "+" if nw_delta.delta >= 0 else ""
+            lines.append(
+                f"- Δ month-over-month: {sign}£{nw_delta.delta}"
+                + (f" ({sign}{nw_delta.pct_change:.1%})" if nw_delta.pct_change is not None else "")
+            )
+        for acct, pos in sorted(nw_by_account.items()):
+            lines.append(f"- [[{acct}]]: £{pos}")
+        net_worth_lines = "\n".join(lines)
+
+    # P7 — Goals progress section
+    goal_progresses = state.get("goal_progress", []) or []
+    goal_lines_list = []
+    for g in goal_progresses:
+        flag_glyph = {
+            "on_track": "·", "ahead": "✓", "behind": "⚠",
+            "achieved": "🎯", "missed": "✗",
+        }.get(g.status, "·")
+        goal_lines_list.append(
+            f"- {flag_glyph} [[{g.goal_id}]]: £{g.current_amount} / £{g.target_amount} "
+            f"({g.pct_complete:.0%}, {g.status}; {g.months_elapsed}/{g.months_total} months)"
+        )
+    goal_lines = "\n".join(goal_lines_list) or "- (no active goals)"
+
     body = _TEMPLATE.format(
         period_human=_human_period(period),
         period_start=start.isoformat(),
@@ -116,6 +156,8 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
         merchant_lines=merchant_lines,
         anomaly_lines=anomaly_lines,
         budget_lines=budget_lines,
+        net_worth_lines=net_worth_lines,
+        goal_lines=goal_lines,
         account_lines=account_lines,
     )
 
@@ -139,6 +181,26 @@ def _draft_via_template(state: AnalystState) -> AnalystState:
     for bv in variances:
         cited_values += [str(bv.target), str(bv.actual), str(bv.delta),
                          f"{bv.pct:.1%}", f"{bv.pct:+.1%}"]
+    # P7 net-worth values
+    if nw_total is not None:
+        cited_values.append(str(nw_total))
+        for pos in nw_by_account.values():
+            cited_values.append(str(pos))
+        if nw_delta and nw_delta.delta is not None:
+            cited_values.append(str(nw_delta.delta))
+            if nw_delta.pct_change is not None:
+                cited_values += [f"{nw_delta.pct_change:.1%}",
+                                 f"+{nw_delta.pct_change:.1%}"]
+    # P7 goal values
+    for g in goal_progresses:
+        cited_values += [str(g.current_amount), str(g.target_amount),
+                         f"{g.pct_complete:.0%}",
+                         str(g.months_elapsed), str(g.months_total)]
+    # Citations: goal + networth pages
+    if nw_total is not None:
+        citations.append(f"snap_{period}")
+    for g in goal_progresses:
+        citations.append(g.goal_id)
 
     return {
         **state,

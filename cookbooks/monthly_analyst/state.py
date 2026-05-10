@@ -24,7 +24,15 @@ class AnalystState(TypedDict, total=False):
     findings: list[AnomalyFinding]
 
     # Populated by budget_variance
-    budget_variance: list[Any]  # BudgetVariance — Any avoids circular import
+    budget_variance: list[Any]
+
+    # P7 — populated by compute_net_worth
+    net_worth_total: Any
+    net_worth_by_account: Any
+    net_worth_delta: Any
+
+    # P7 — populated by compute_goals
+    goal_progress: list[Any]
 
     # Populated by draft_memo
     draft_body: str
@@ -38,7 +46,7 @@ class AnalystState(TypedDict, total=False):
     memo_page_id: str
 
     # Populated by report
-    report: Any  # AnalystReport — Any to avoid pydantic-in-TypedDict pain
+    report: Any
 
     # Errors and warnings collected by every node
     errors: list[str]

@@ -838,6 +838,132 @@ def reapply_rules() -> None:
 budget_app = typer.Typer(no_args_is_help=True, help="Manage spending budgets.")
 app.add_typer(budget_app, name="budget")
 
+goal_app = typer.Typer(no_args_is_help=True, help="Track aspirational targets (P7).")
+app.add_typer(goal_app, name="goal")
+
+networth_app = typer.Typer(no_args_is_help=True, help="Net-worth snapshots (P7).")
+app.add_typer(networth_app, name="networth")
+
+
+@goal_app.command("set")
+def goal_set(
+    name: str = typer.Argument(...),
+    target_amount: float = typer.Argument(...),
+    target_date: str = typer.Argument(..., help="yyyy-mm-dd"),
+    scope_type: str = typer.Option("savings_account", "--scope-type"),
+    scope_id: str = typer.Option(..., "--scope-id"),
+    started_at: str = typer.Option("", "--started"),
+    notes: str = typer.Option("", "--notes"),
+    status: str = typer.Option("active", "--status"),
+) -> None:
+    """Create or update a Goal."""
+    from cookbooks._shared.ontology.functions.actions import upsert_goal
+    init_schema()
+    page = upsert_goal(
+        actor="user", name=name, target_amount=target_amount,
+        target_date=target_date, scope_type=scope_type,
+        scope_id=scope_id, status=status,
+        started_at=started_at or None, notes=notes,
+    )
+    console.print(f"[green]goal saved[/]: {page}")
+
+
+@goal_app.command("list")
+def goal_list(
+    status: str = typer.Option("", "--status",
+                                help="filter by status (active, paused, achieved, missed)"),
+) -> None:
+    """List goals."""
+    init_schema()
+    from cookbooks._shared.db import connect_readonly
+    conn = connect_readonly()
+    try:
+        sql = ("SELECT id, name, target_amount, target_date, "
+               "       scope_type, scope_id, status FROM goals")
+        params: list = []
+        if status:
+            sql += " WHERE status=?"
+            params.append(status)
+        sql += " ORDER BY target_date"
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        console.print("[dim](no goals)[/]")
+        return
+    t = Table(show_header=True, header_style="bold")
+    for c in ("id", "name", "target", "due", "scope", "status"):
+        t.add_column(c)
+    for r in rows:
+        t.add_row(r[0], r[1], f"£{float(r[2]):.2f}", str(r[3]),
+                  f"{r[4]}/{r[5]}", r[6])
+    console.print(t)
+
+
+@goal_app.command("progress")
+def goal_progress_cmd(
+    goal_id: str = typer.Argument(..., help="goal page id"),
+    period: str = typer.Option(..., "--period", help="yyyy_mm or yyyy-mm"),
+) -> None:
+    """Show progress for one goal at a given period."""
+    init_schema()
+    from cookbooks._shared.analytics.goals import goal_progress
+    p = goal_progress(goal_id, period.replace("-", "_"))
+    t = Table(show_header=True, header_style="bold")
+    t.add_column("field"); t.add_column("value")
+    t.add_row("name",              p.name)
+    t.add_row("target",            f"£{p.target_amount} by {p.target_date}")
+    t.add_row("current",           f"£{p.current_amount}")
+    t.add_row("pct_complete",      f"{p.pct_complete:.1%}")
+    t.add_row("months",            f"{p.months_elapsed} / {p.months_total}")
+    t.add_row("monthly required",  f"£{p.monthly_required}")
+    t.add_row("status",            p.status)
+    t.add_row("on_track",          "yes" if p.on_track else "[red]NO[/]")
+    console.print(t)
+
+
+@networth_app.command("snapshot")
+def networth_snapshot(
+    period: str = typer.Argument(..., help="yyyy_mm or yyyy-mm"),
+) -> None:
+    """Compute + persist a NetWorthSnapshot for the period."""
+    from cookbooks._shared.analytics.net_worth import compute_snapshot
+    from cookbooks._shared.ontology.functions.actions import snapshot_net_worth
+    init_schema()
+    p = period.replace("-", "_")
+    total, by_account = compute_snapshot(p)
+    snapshot_net_worth(
+        actor="analyst", period=p, total_amount=float(total),
+        by_account={k: float(v) for k, v in by_account.items()},
+    )
+    console.print(f"[green]snapshot saved[/]: snap_{p} · total £{total}")
+    for acct, pos in sorted(by_account.items()):
+        console.print(f"  [[{acct}]]: £{pos}")
+
+
+@networth_app.command("list")
+def networth_list() -> None:
+    """List net-worth snapshots oldest to newest."""
+    init_schema()
+    from cookbooks._shared.db import connect_readonly
+    conn = connect_readonly()
+    try:
+        rows = conn.execute(
+            "SELECT period, CAST(total_amount AS VARCHAR), computed_at "
+            "FROM net_worth_snapshots ORDER BY period"
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        console.print("[dim](no snapshots)[/]")
+        return
+    t = Table(show_header=True, header_style="bold")
+    for c in ("period", "total", "computed_at"):
+        t.add_column(c)
+    for r in rows:
+        t.add_row(r[0], f"£{r[1]}", str(r[2])[:19])
+    console.print(t)
+
 
 @budget_app.command("set")
 def budget_set(
