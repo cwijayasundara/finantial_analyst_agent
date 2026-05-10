@@ -15,6 +15,8 @@ class AdvisorState(TypedDict, total=False):
     findings: list[Any]
     goal_progress: list[Any]
     low_confidence_merchants: list[dict[str, Any]]
+    net_worth_history: list[dict[str, Any]]    # P7
+    credit_statements: list[dict[str, Any]]    # P7
 
     # Populated by flag_uncertainties
     flagged_concepts: list[str]          # page ids of ConceptReview pages

@@ -135,11 +135,23 @@ def connect_readonly() -> duckdb.DuckDBPyConnection:
     return _connect(read_only=True)
 
 
+# P7 — credit-card fields appended to `statements` via ALTER TABLE rather
+# than baked into the CREATE because existing ledgers in the wild already
+# have the table with the original 7 columns. DuckDB's ADD COLUMN IF NOT
+# EXISTS is idempotent.
+_STATEMENT_CREDIT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("outstanding_balance", "DECIMAL(12,2)"),
+    ("apr",                 "DECIMAL(6,4)"),
+    ("min_payment",         "DECIMAL(12,2)"),
+    ("payment_due_date",    "DATE"),
+)
+
+
 def init_schema() -> None:
     """Create all L1a tables if they don't exist; seed default categories.
 
     Idempotent: re-runs leave the database identical (CREATE IF NOT EXISTS,
-    INSERT OR IGNORE on the seed set).
+    INSERT OR IGNORE on the seed set, ADD COLUMN IF NOT EXISTS).
     """
     conn = connect_readwrite()
     try:
@@ -151,6 +163,11 @@ def init_schema() -> None:
             conn.execute(
                 "INSERT INTO categories(id, name) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 [i, name],
+            )
+        # P7 credit-card columns
+        for col, ddl in _STATEMENT_CREDIT_COLUMNS:
+            conn.execute(
+                f"ALTER TABLE statements ADD COLUMN IF NOT EXISTS {col} {ddl}"
             )
     finally:
         conn.close()
