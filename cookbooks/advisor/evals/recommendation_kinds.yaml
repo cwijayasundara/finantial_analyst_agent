@@ -1,0 +1,24 @@
+suite: recommendation_kinds
+cookbook: advisor
+description: Advisor surfaces the right recommendation kind for each scenario.
+
+cases:
+  - id: budget_adjust_groceries_2025_04
+    description: £100 over a £80 grocery budget → budget_adjust rec drafted
+    fixture: advisor_budget_overspend
+    trigger:
+      period: "2025_04"
+    assertions:
+      - { kind: contains_substring, path: draft_body, text: "groceries" }
+      - { kind: contains_substring, path: draft_body, text: "[[budget_2025_04_category_groceries]]" }
+      - { kind: regex_match, path: "kinds", pattern: "budget_adjust" }
+
+  - id: forecast_overshoot_groceries_uptrend
+    description: Projected cumulative > target * 1.10 → forecast_overshoot rec drafted
+    fixture: advisor_forecast_overshoot
+    trigger:
+      period: "2025_04"
+    assertions:
+      - { kind: contains_substring, path: draft_body, text: "groceries" }
+      - { kind: regex_match, path: "kinds", pattern: "forecast_overshoot" }
+      - { kind: contains_substring, path: draft_body, text: "overshoot" }

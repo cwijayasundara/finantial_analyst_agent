@@ -47,6 +47,7 @@ addopts = "-q --strict-markers"
 markers = [
     "integration: hits real Ollama or real PDFs (skip by default)",
     "needs_kuzu: requires the kuzu package",
+    "eval: regression eval suites (deterministic; LLM judge optional)",
 ]
 
 [tool.ruff]
