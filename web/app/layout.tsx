@@ -18,6 +18,7 @@ const NAV = [
   { href: "/forecast",        title: "Forecast"        },
   { href: "/qa",              title: "Q&A"             },
   { href: "/graph",           title: "Graph"           },
+  { href: "/admin",           title: "Admin"           },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
