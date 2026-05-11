@@ -30,7 +30,60 @@ _UK_POSTCODE = re.compile(
 _UK_PHONE_INTL = re.compile(r"\+44[\s\-]?\d{2,4}[\s\-]?\d{3,4}[\s\-]?\d{3,4}")
 _UK_PHONE_LOCAL = re.compile(r"\b0\d{10}\b")
 _SORT_CODE = re.compile(r"\b\d{2}-\d{2}-\d{2}\b")
+# UK National Insurance number: two letters (with exclusions) + 6 digits +
+# optional final letter A–D. Allow optional whitespace between groups so
+# 'AB 12 34 56 C' formats are caught alongside the canonical 'AB123456C'.
+_UK_NI = re.compile(
+    r"\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]?\b",
+    re.IGNORECASE,
+)
+# Credit-card PAN written with spaces or hyphens (4-4-4-4 or 4-6-5/6 layouts).
+# Luhn-verified inside `_mask_card_pan` to avoid catching arbitrary digit
+# blocks that happen to satisfy the shape.
+_CARD_PAN_SEPARATED = re.compile(
+    r"\b(?:\d{4}[\s-]){3}\d{4}\b"
+    r"|\b\d{4}[\s-]\d{6}[\s-]\d{5}\b"
+)
+# UK-style street address: number (optionally with a unit letter), then a
+# capitalised name, then a road-type suffix. Best-effort — designed for
+# 'sender address' lines on statements, not full free-text addresses.
+_UK_STREET_ADDRESS = re.compile(
+    r"\b\d{1,4}[A-Z]?\s+"
+    r"(?:[A-Z][A-Za-z'’]*\s+){1,5}"
+    r"(?:Road|Rd|Street|St|Avenue|Ave|Lane|Ln|Way|Close|Cl|Drive|Dr|"
+    r"Crescent|Cres|Place|Pl|Court|Ct|Square|Sq|Gardens|Gdns|Park|Pk|"
+    r"Hill|Mews|Walk|Terrace|Boulevard|Blvd|Row)\b\.?",
+    re.IGNORECASE,
+)
 _LONG_DIGIT_RUN = re.compile(r"\b\d{8,}\b")
+
+
+def _luhn_ok(digits: str) -> bool:
+    """Standard mod-10 check used to validate credit-card PANs."""
+    nums = [int(c) for c in digits if c.isdigit()]
+    if not 13 <= len(nums) <= 19:
+        return False
+    total = 0
+    for i, n in enumerate(reversed(nums)):
+        if i % 2 == 1:
+            n *= 2
+            if n > 9:
+                n -= 9
+        total += n
+    return total % 10 == 0
+
+
+def _mask_card_pan(text: str) -> str:
+    """Replace separator-grouped digit runs that pass the Luhn check with
+    [CARD]. We deliberately validate via Luhn so legitimate transaction
+    references with four-digit grouping (e.g., merchant order numbers)
+    aren't mis-flagged.
+    """
+    def repl(m: re.Match[str]) -> str:
+        bare = re.sub(r"[\s-]", "", m.group(0))
+        return "[CARD]" if _luhn_ok(bare) else m.group(0)
+    return _CARD_PAN_SEPARATED.sub(repl, text)
+
 
 _PIPELINE: tuple[tuple[re.Pattern[str], str], ...] = (
     (_EMAIL, "[EMAIL]"),
@@ -38,7 +91,11 @@ _PIPELINE: tuple[tuple[re.Pattern[str], str], ...] = (
     (_UK_PHONE_INTL, "[PHONE]"),
     (_UK_PHONE_LOCAL, "[PHONE]"),
     (_UK_POSTCODE, "[POSTCODE]"),
+    (_UK_NI, "[NI_NUMBER]"),
     (_SORT_CODE, "[SORT_CODE]"),
+    (_UK_STREET_ADDRESS, "[ADDRESS]"),
+    # _CARD_PAN_SEPARATED is handled by _mask_card_pan (Luhn-checked) and
+    # not registered here — see mask_pii below.
     (_LONG_DIGIT_RUN, "[NUM]"),
 )
 
@@ -71,6 +128,9 @@ def mask_pii(text: str | None, denylist: Iterable[str] | None = None) -> str:
     """
     if not text:
         return ""
+    # Card PAN runs first — Luhn-validated, so it won't fight the
+    # digit-run rule that would otherwise chop it into [NUM] [NUM] [NUM] [NUM].
+    text = _mask_card_pan(text)
     for pattern, repl in _PIPELINE:
         text = pattern.sub(repl, text)
     for name in _resolve_denylist(denylist):
@@ -81,12 +141,24 @@ def mask_pii(text: str | None, denylist: Iterable[str] | None = None) -> str:
 _RESIDUAL_CHECKS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_SORT_CODE, "sort code"),
     (_IBAN, "IBAN"),
+    (_UK_NI, "UK NI number"),
+    (_UK_STREET_ADDRESS, "UK street address"),
     (_LONG_DIGIT_RUN, "8+ digit run"),
     (_EMAIL, "email"),
     (_UK_POSTCODE, "UK postcode"),
     (_UK_PHONE_INTL, "UK phone"),
     (_UK_PHONE_LOCAL, "UK phone"),
 )
+
+
+def _assert_no_card_pan(text: str) -> None:
+    for m in _CARD_PAN_SEPARATED.finditer(text):
+        bare = re.sub(r"[\s-]", "", m.group(0))
+        if _luhn_ok(bare):
+            raise PIILeakError(
+                f"residual PII detected (card PAN={m.group(0)!r}) "
+                f"in outbound payload: {text[:120]!r}"
+            )
 
 
 def assert_no_pii(text: str | None, denylist: Iterable[str] | None = None) -> None:
@@ -98,6 +170,7 @@ def assert_no_pii(text: str | None, denylist: Iterable[str] | None = None) -> No
     """
     if not text:
         return
+    _assert_no_card_pan(text)
     for pat, label in _RESIDUAL_CHECKS:
         m = pat.search(text)
         if m:

@@ -163,6 +163,60 @@ class TestAssertNoPII:
         assert_no_pii(masked)  # no raise — guard agrees with masker
 
 
+class TestCardPAN:
+    # 4242 4242 4242 4242 is the canonical Stripe test card — passes Luhn.
+    def test_masks_spaced_card_pan(self):
+        assert mask_pii("paid with 4242 4242 4242 4242 today") == "paid with [CARD] today"
+
+    def test_masks_hyphen_card_pan(self):
+        assert mask_pii("card 4242-4242-4242-4242") == "card [CARD]"
+
+    def test_masks_amex_layout(self):
+        # 4-6-5 Amex split (15 digits, Luhn-valid test PAN)
+        assert mask_pii("AMEX 3782 822463 10005") == "AMEX [CARD]"
+
+    def test_does_not_mask_arbitrary_4_digit_groups(self):
+        # 1234 1234 1234 1234 doesn't pass Luhn — must be left alone so
+        # reference numbers / order ids stay readable for categorisation.
+        out = mask_pii("ref 1234 1234 1234 1234 today")
+        assert "[CARD]" not in out
+
+    def test_assert_no_pii_raises_on_card_pan(self):
+        with pytest.raises(PIILeakError, match="card PAN"):
+            assert_no_pii("4242 4242 4242 4242")
+
+
+class TestUKNINumber:
+    def test_masks_canonical_ni_number(self):
+        assert mask_pii("NI AB123456C on file") == "NI [NI_NUMBER] on file"
+
+    def test_masks_spaced_ni_number(self):
+        assert mask_pii("AB 12 34 56 C") == "[NI_NUMBER]"
+
+    def test_assert_no_pii_raises_on_ni_number(self):
+        with pytest.raises(PIILeakError, match="NI number"):
+            assert_no_pii("AB123456C")
+
+
+class TestUKStreetAddress:
+    def test_masks_simple_street(self):
+        assert mask_pii("delivery 221 Baker Street tonight") == "delivery [ADDRESS] tonight"
+
+    def test_masks_with_road_suffix(self):
+        assert mask_pii("from 12 High Road, London") == "from [ADDRESS], London"
+
+    def test_masks_unit_letter(self):
+        assert mask_pii("at 14A Acacia Avenue") == "at [ADDRESS]"
+
+    def test_assert_no_pii_raises_on_street(self):
+        with pytest.raises(PIILeakError, match="street address"):
+            assert_no_pii("delivery 221 Baker Street")
+
+    def test_clean_business_names_unchanged(self):
+        # 'Tesco Stores' and similar have no numeric prefix → not flagged.
+        assert mask_pii("TESCO STORES LONDON") == "TESCO STORES LONDON"
+
+
 class TestMaskerAndGuardInLockstep:
     """Round-trip: mask_pii output must always satisfy assert_no_pii."""
 
@@ -172,6 +226,8 @@ class TestMaskerAndGuardInLockstep:
         "Sort 12-34-56 Acct 12345678 Postcode SW1A 1AA phone 02012345678",
         "GB29NWBK60161331926819 send to me@x.co",
         "PAYPAL *SOMETHING*ABC123 99999999999",
+        "card 4242 4242 4242 4242 NI AB123456C",
+        "delivery 221 Baker Street, NW1 6XE",
     ])
     def test_roundtrip(self, raw, monkeypatch):
         monkeypatch.setenv("PFH_PII_DENYLIST", "EXAMPLENAME,EXAMPLENA,JANE")
