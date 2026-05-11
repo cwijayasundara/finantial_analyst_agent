@@ -100,6 +100,22 @@ export const api = {
         "/api/networth", { period },
       ),
   },
+  // P8
+  forecast: {
+    listCategories: (params: { period: string; horizon?: number; lookback?: number; top_n?: number }) => {
+      const qs = new URLSearchParams({ period: params.period });
+      if (params.horizon)  qs.set("horizon", String(params.horizon));
+      if (params.lookback) qs.set("lookback", String(params.lookback));
+      if (params.top_n)    qs.set("top_n", String(params.top_n));
+      return get<CategoryForecast[]>(`/api/forecast/categories?${qs}`);
+    },
+    getCategory: (category: string, params: { period: string; horizon?: number; lookback?: number }) => {
+      const qs = new URLSearchParams({ period: params.period });
+      if (params.horizon)  qs.set("horizon", String(params.horizon));
+      if (params.lookback) qs.set("lookback", String(params.lookback));
+      return get<CategoryForecast>(`/api/forecast/categories/${category}?${qs}`);
+    },
+  },
 };
 
 export type MemoSummary = {
@@ -195,4 +211,16 @@ export type NetWorthDetail = NetWorthRow & {
     delta: string | null;
     pct_change: number | null;
   };
+};
+
+// --- P8 types ---
+export type CategoryForecast = {
+  category: string;
+  history_periods: string[];
+  history: string[];           // Decimals serialised as strings
+  forecast_periods: string[];
+  forecast: string[];
+  method: "seasonal_naive" | "holt_smoothing" | "linear_projection" | "mean";
+  rmse: string;
+  monthly_average: string;
 };
