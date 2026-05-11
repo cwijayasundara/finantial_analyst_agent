@@ -72,8 +72,8 @@ def build_app() -> FastAPI:
 
     # Routers
     from cookbooks.api.routers import (
-        budgets, concept_reviews, decisions, goals, graph, memos,
-        merchants, net_worth, qa, recommendations, statements,
+        budgets, concept_reviews, decisions, forecast, goals, graph,
+        memos, merchants, net_worth, qa, recommendations, statements,
     )
     app.include_router(memos.router)
     app.include_router(merchants.router)
@@ -86,6 +86,7 @@ def build_app() -> FastAPI:
     app.include_router(concept_reviews.router)
     app.include_router(goals.router)        # P7
     app.include_router(net_worth.router)    # P7
+    app.include_router(forecast.router)     # P8
     return app
 
 

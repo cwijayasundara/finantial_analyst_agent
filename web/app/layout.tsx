@@ -15,6 +15,7 @@ const NAV = [
   { href: "/budgets",         title: "Budgets"         },
   { href: "/goals",           title: "Goals"           },
   { href: "/networth",        title: "Net Worth"       },
+  { href: "/forecast",        title: "Forecast"        },
   { href: "/qa",              title: "Q&A"             },
   { href: "/graph",           title: "Graph"           },
 ];
