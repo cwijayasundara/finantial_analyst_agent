@@ -17,6 +17,7 @@ dependencies = [
     "markitdown>=0.1",
     "pandas>=3.0",
     "watchdog>=6.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

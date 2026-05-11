@@ -1,10 +1,19 @@
 """Typed settings loader. Privacy-critical: rejects remote Ollama URLs."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
+
+# Load .env at import time — applies to every entry point (FastAPI shim,
+# CLI, tests). dotenv does not override existing env vars, so test
+# monkeypatches still win.
+_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+if _ENV_PATH.exists():
+    load_dotenv(_ENV_PATH, override=False)
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
@@ -71,11 +80,10 @@ class Settings(BaseModel):
 def load_settings() -> Settings:
     """Read environment variables and return validated settings.
 
-    Resolves paths against env vars set by `tmp_workspace` in tests or by
-    real `.env` in production. Raises if OLLAMA_BASE_URL is non-loopback.
+    Resolves paths against env vars set by `tmp_workspace` in tests, by
+    a `.env` at the repo root, or by the shell. Raises if
+    OLLAMA_BASE_URL is non-loopback.
     """
-    import os
-
     paths = Paths(
         sources=Path(os.environ.get("PFH_SOURCES_DIR", "./sources")),
         parsed=Path(os.environ.get("PFH_PARSED_DIR", "./parsed")),
@@ -85,7 +93,7 @@ def load_settings() -> Settings:
         out=Path(os.environ.get("PFH_OUT_DIR", "./out")),
     )
     llm = LLMConfig(
-        model=os.environ.get("PFH_LLM_MODEL", "ollama:qwen3.6:35b"),
+        model=os.environ.get("PFH_LLM_MODEL", "ollama:qwen3.5:latest"),
         embed_model=os.environ.get("PFH_EMBED_MODEL", "ollama:nomic-embed-text"),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
     )

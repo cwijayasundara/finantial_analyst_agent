@@ -1,5 +1,5 @@
 llm:
-  model: ${PFH_LLM_MODEL:-ollama:qwen3.6:35b}
+  model: ${PFH_LLM_MODEL:-ollama:qwen3.5:latest}
   embed_model: ${PFH_EMBED_MODEL:-ollama:nomic-embed-text}
   ollama_base_url: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
 
