@@ -1,0 +1,35 @@
+suite: memo_quality
+cookbook: monthly_analyst
+description: Memo template renders the right sections under representative ledgers.
+
+cases:
+  - id: groceries_overshoot_april_2025
+    description: £100 over budget should surface an 'over' badge + cite the budget page
+    fixture: april_2025_overshoot
+    trigger:
+      period: "2025_04"
+    assertions:
+      - { kind: section_present, section: "Budget Variance" }
+      - { kind: contains_substring, path: draft_body, text: "⚠ [[budget_2025_04_category_groceries]]" }
+      - { kind: contains_substring, path: draft_body, text: "over" }
+      - { kind: citation_count_gte, n: 1 }
+
+  - id: groceries_on_track_april_2025
+    description: Actual under target — 'under' badge, no over warning
+    fixture: april_2025_on_track
+    trigger:
+      period: "2025_04"
+    assertions:
+      - { kind: section_present, section: "Budget Variance" }
+      - { kind: contains_substring, path: draft_body, text: "under" }
+      - { kind: contains_substring, path: draft_body, text: "[[budget_2025_04_category_groceries]]" }
+
+  - id: forecast_section_present_uptrend
+    description: 12-month uptrend should render the Forecast section with method tag
+    fixture: forecast_uptrend_groceries
+    trigger:
+      period: "2025_04"
+    assertions:
+      - { kind: section_present, section: "Forecast (next 3 months)" }
+      - { kind: contains_substring, path: draft_body, text: "groceries" }
+      - { kind: regex_match, path: draft_body, pattern: "(holt_smoothing|linear_projection|seasonal_naive)" }

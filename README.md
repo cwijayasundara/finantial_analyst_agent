@@ -207,6 +207,21 @@ The integration test `test_real_backfill.py` is skipped by default; it
 needs `PFH_RUN_INTEGRATION=1` and a running Ollama. All other tests
 use synthetic data (no real PII).
 
+### Regression evals (P9)
+
+YAML-driven suites under `cookbooks/<name>/evals/` exercise each
+cookbook end-to-end with synthetic fixtures and deterministic
+assertions. Run just the evals:
+
+```bash
+.venv/bin/pytest tests/eval -m eval
+```
+
+A markdown summary lands at `eval/out/report.md` (gitignored). Add a
+new case by editing the suite YAML — no Python required. LLM-as-judge
+grading is opt-in and skips automatically when the judge model
+(`ollama:qwen3:14b`) isn't pulled.
+
 ## License
 
 Private — not yet published. See repo owner.
