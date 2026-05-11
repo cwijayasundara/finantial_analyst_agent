@@ -6,18 +6,22 @@ into a typed graph + ledger, and exposes a multi-cookbook agentic
 surface for monthly memos, Q&A, budget tracking, and actionable
 recommendations.
 
-**Status:** P1–P5 all shipped. **315 unit tests passing.** Architecture
+**Status:** P1–P9 all shipped. **443 unit tests passing.** Architecture
 is documented in [`docs/architecture.md`](docs/architecture.md).
 
 ## What it does
 
-| Cookbook | Phase | What it produces |
+| Cookbook / module | Phase | What it produces |
 |---|---|---|
 | [`statement_ingester`](cookbooks/statement_ingester/) | P1 | DuckDB ledger + Wiki pages from your PDFs |
-| [`monthly_analyst`](cookbooks/monthly_analyst/) | P2 | One Markdown memo per period with rollups + anomalies + budget variance |
+| [`monthly_analyst`](cookbooks/monthly_analyst/) | P2 | One Markdown memo per period with rollups + anomalies + budget variance + forecast + goals |
 | [`knowledge_engine`](cookbooks/knowledge_engine/) | P3 | Q&A agent over the graph + wiki, with `[[wikilink]]` citations |
-| [`advisor`](cookbooks/advisor/) | P5 | Recommendations (cancel sub, adjust budget, investigate anomaly) + concept-review queue |
 | Budget management | P4 | `Budget` ObjectType + `set_budget` action; surfaces in the analyst's memos |
+| [`advisor`](cookbooks/advisor/) | P5 | Recommendations (cancel sub, adjust budget, investigate anomaly, forecast overshoot, goal off-track, credit payoff) + concept-review queue |
+| FastAPI + Next.js dashboard | P6 | Local-only web UI under `cookbooks/api/` + `web/` |
+| Goals + Net Worth | P7 | `Goal` + `NetWorthSnapshot` ObjectTypes, plan-mode advice on debt payoff |
+| Forecasting | P8 | `forecast_category` + per-category sparklines + `forecast_overshoot` advisor kind |
+| Eval framework | P9 | YAML-driven regression suites under `cookbooks/<name>/evals/` |
 
 Plans for each phase live under [`docs/superpowers/plans/`](docs/superpowers/plans/).
 
@@ -44,11 +48,14 @@ cp .env.example .env
 # 1. Drop new PDFs into sources/<account-folder>/, then ingest
 python -m cookbooks.statement_ingester backfill sources/
 
-# 2. (Optional) Set or update budgets
+# 2. (Optional) Set or update budgets / goals / net-worth snapshots
 python -m cookbooks.statement_ingester budget set 2025_04 category groceries 200
 python -m cookbooks.statement_ingester budget list 2025_04
+python -m cookbooks.statement_ingester goal add "Emergency fund" 8000 2025-09 savings_account a_savings
+python -m cookbooks.statement_ingester goal progress 2025_04
+python -m cookbooks.statement_ingester networth snapshot 2025_04
 
-# 3. Generate the monthly memo for a period
+# 3. Generate the monthly memo for a period (includes forecast + goals)
 python -m cookbooks.monthly_analyst analyse 2025-04
 # … or backfill an inclusive range:
 python -m cookbooks.monthly_analyst backfill-memos 2025-01 2026-05
@@ -149,26 +156,14 @@ cd web && pnpm start
 
 Routes: `/` (dashboard), `/memos`, `/memos/[period]`, `/merchants`,
 `/merchants/[id]`, `/recommendations`, `/recommendations/[id]`,
-`/budgets`, `/qa`, `/graph`, `/decisions/[id]`. See
-[`web/README.md`](web/README.md) for the layout and
-[`docs/superpowers/plans/2026-05-10-p6-web-frontend.md`](docs/superpowers/plans/2026-05-10-p6-web-frontend.md)
+`/budgets`, `/goals`, `/networth`, `/forecast`, `/qa`, `/graph`,
+`/decisions/[id]`. See [`web/README.md`](web/README.md) for the layout
+and [`docs/superpowers/plans/2026-05-10-p6-web-frontend.md`](docs/superpowers/plans/2026-05-10-p6-web-frontend.md)
 for the design.
 
 The Q&A endpoint calls `build_chat_model()` so the privacy stack
 (masker / denylist / `assert_no_pii` guard / audit log) applies
 unchanged.
-
-## Legacy frontend note
-
-There is **no other web UI** in this repository. All interaction is
-through the CLIs above plus Obsidian (which can render `wiki/`
-directly). A Next.js + FastAPI dashboard is planned as **P6** — see
-[`docs/superpowers/plans/2026-05-10-p6-web-frontend.md`](docs/superpowers/plans/2026-05-10-p6-web-frontend.md)
-for the full plan. The frontend would preserve the privacy contract:
-both servers bind to `127.0.0.1`, the FastAPI shim wraps the existing
-`cookbooks._shared.qa_tools` and action layer, and the Q&A endpoint
-calls `build_chat_model()` so the masker / denylist / audit log all
-apply unchanged.
 
 ## Repository layout
 
@@ -186,16 +181,53 @@ cookbooks/
     query.py                  # read-only Cypher executor
     record_ingester.py        # manifest-driven CSV ingest
     compile_graph.py          # ledger + wiki -> Kuzu + JSONL
-  statement_ingester/         # P1 cookbook (parse -> validate -> upsert -> categorise -> recurring -> compile -> report)
-  monthly_analyst/            # P2 cookbook (load_period -> rollups -> budget_variance -> anomalies -> draft -> lint -> publish -> report)
+  statement_ingester/         # P1 cookbook (parse -> validate -> upsert -> categorise -> recurring -> compile -> report); also hosts budget/goal/networth CLIs
+  monthly_analyst/            # P2 + P7 + P8 cookbook (load_period -> rollups -> budget_variance -> forecast -> anomalies -> goals -> networth -> draft -> lint -> publish -> report)
   knowledge_engine/           # P3 cookbook (Q&A agent + CLI)
-  advisor/                    # P5 cookbook (load_context -> flag -> draft -> lint -> publish -> report)
+  advisor/                    # P5 + P7 + P8 cookbook (load_context -> flag -> draft -> lint -> publish -> report)
+  api/                        # P6 FastAPI shim — routers under cookbooks/api/routers/
+eval/                         # P9 eval framework (runner, matchers, adapters, reporter)
+web/                          # P6 Next.js dashboard
 docs/
   architecture.md             # technical architecture
-  superpowers/plans/          # P1, P2, P3, P4, P5 plans
-scripts/                      # setup.sh, check-egress.sh
-tests/                        # 315 unit tests, all-synthetic fixtures
+  superpowers/specs/          # design spec
+  superpowers/plans/          # P1 - P9 plans
+scripts/                      # setup.sh, dev.sh, build-web.sh, check-egress.sh
+tests/                        # 443 unit + eval tests, all-synthetic fixtures
 ```
+
+## Test the app end-to-end
+
+A 60-second smoke test against your own statements:
+
+```bash
+# 1. Verify the unit + eval suite is green (synthetic fixtures, no real data)
+.venv/bin/pytest tests/ --ignore=tests/statement_ingester/test_real_backfill.py
+
+# 2. Ingest your PDFs (idempotent — re-runs skip in seconds)
+.venv/bin/python -m cookbooks.statement_ingester backfill sources/
+
+# 3. Produce a memo for the most recent full month
+.venv/bin/python -m cookbooks.monthly_analyst analyse 2026-04
+open wiki/memos/memo_2026_04.md          # or read in any Markdown viewer
+
+# 4. Get recommendations and forecasts
+.venv/bin/python -m cookbooks.advisor recommend 2026-04
+.venv/bin/python -m cookbooks.statement_ingester goal progress 2026_04
+
+# 5. Boot the dashboard (binds 127.0.0.1 only)
+bash scripts/dev.sh
+# Then open:
+#   http://127.0.0.1:3000/          — overview
+#   http://127.0.0.1:3000/memos     — generated monthly memos
+#   http://127.0.0.1:3000/forecast  — sparklines per category
+#   http://127.0.0.1:3000/qa        — natural-language Q&A
+#   http://127.0.0.1:3000/graph     — interactive graph explorer
+```
+
+If you don't have PDFs handy, every cookbook also runs against the
+synthetic fixtures used by the test suite — `pytest tests/eval -m eval`
+exercises the full memo + advisor + forecast pipeline in under 2s.
 
 ## Tests
 
