@@ -119,17 +119,24 @@ def test_remote_invoke_writes_audit_log(tmp_workspace: Path, monkeypatch):
 
 
 def test_remote_invoke_raises_on_residual_pii(tmp_workspace: Path, monkeypatch):
-    """Final guard refuses to send if a high-risk pattern survived masking."""
+    """Final guard refuses to send if a denylist entry survived tokenization.
+
+    The PiiTokenizer handles structural PII (sort codes, IBANs, etc.) via
+    regex/NER. Denylist entries are not tokenized — they must be caught by
+    the assert_no_pii tripwire. This test verifies that the tripwire
+    fires and that the inner model is never called.
+    """
     from cookbooks._shared.pii import PIILeakError
 
     monkeypatch.setenv("PFH_ALLOW_REMOTE_LLM", "true")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
+    monkeypatch.setenv("PFH_PII_DENYLIST", "SECRETNAME")
 
     fake_inner = MagicMock()
     with patch("cookbooks._shared.llm.init_chat_model", return_value=fake_inner):
         chat = build_chat_model(model="openai:gpt-5.4-mini")
-        with pytest.raises(PIILeakError, match="sort code"):
-            chat.invoke([("system", "ok"), ("human", "Sort code 12-34-56")])
+        with pytest.raises(PIILeakError, match="SECRETNAME"):
+            chat.invoke([("system", "ok"), ("human", "Transfer to SECRETNAME today")])
     fake_inner.invoke.assert_not_called()
 
 
@@ -219,3 +226,122 @@ def test_remote_flag_falsey_values_keep_strict(
 def test_parse_model_id_rejects_empty_name():
     with pytest.raises(ValueError, match="Empty model name"):
         parse_model_id("ollama:")
+
+
+# ----- _RedactingChat -----
+
+import hashlib
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from cookbooks._shared.llm import _RedactingChat
+from cookbooks._shared.pii_tokenizer import PiiTokenizer
+
+
+class _StubInner:
+    """Mimic the langchain BaseChatModel.invoke contract for tests."""
+    def __init__(self, response_content: str):
+        self._response_content = response_content
+        self.last_messages = None
+
+    def invoke(self, messages, **kwargs):
+        self.last_messages = messages
+        return MagicMock(content=self._response_content)
+
+
+def _read_audit(log_path: Path) -> list[dict]:
+    return [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+
+
+def test_redacting_chat_tokenizes_outgoing(tmp_path):
+    inner = _StubInner("response with <<PERSON_001>>")
+    log_path = tmp_path / "audit.jsonl"
+    chat = _RedactingChat(
+        inner=inner,
+        log_path=log_path,
+        provider="openai",
+        model_name="gpt-5.4-mini",
+        tokenizer=PiiTokenizer(),
+    )
+
+    chat.invoke([("user", "John Smith spent £42 at Costco.")])
+
+    sent = inner.last_messages
+    # Inner saw tokenized text, not the raw name.
+    assert sent is not None
+    sent_text = str(sent)
+    assert "John Smith" not in sent_text
+    assert "<<PERSON_" in sent_text
+    assert "Costco" in sent_text  # merchant survives
+
+
+def test_redacting_chat_detokenizes_response(tmp_path):
+    # The stub will echo back <<PERSON_001>>; the proxy must restore the original name.
+    inner_with_brackets = _StubInner("<<PERSON_001>> spent the most at Costco.")
+    chat = _RedactingChat(
+        inner=inner_with_brackets,
+        log_path=tmp_path / "audit.jsonl",
+        provider="openai",
+        model_name="gpt-5.4-mini",
+        tokenizer=PiiTokenizer(),
+    )
+
+    result = chat.invoke([("user", "John Smith spent £42 at Costco.")])
+    # The user-facing response has the original name restored.
+    assert "John Smith" in result.content
+
+
+def test_redacting_chat_audit_log_contains_hash(tmp_path):
+    inner = _StubInner("ok")
+    log_path = tmp_path / "audit.jsonl"
+    chat = _RedactingChat(
+        inner=inner,
+        log_path=log_path,
+        provider="openai",
+        model_name="gpt-5.4-mini",
+        tokenizer=PiiTokenizer(),
+    )
+
+    raw = "John Smith spent £42 at Costco."
+    chat.invoke([("user", raw)])
+
+    records = _read_audit(log_path)
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["provider"] == "openai"
+    assert rec["model"] == "gpt-5.4-mini"
+    # Redacted form is logged in plaintext.
+    sent = json.dumps(rec["messages"])
+    assert "John Smith" not in sent
+    # Hash of the ORIGINAL is logged for forensic proof; verify by recomputing.
+    expected_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    assert expected_hash in json.dumps(rec.get("prompt_sha256", []))
+
+
+def test_redacting_chat_tripwire_blocks_unredacted_pii(tmp_path):
+    """If tokenization misses something, assert_no_pii must fail-closed."""
+    inner = _StubInner("never called")
+
+    class BrokenTokenizer:
+        def tokenize(self, text):
+            return text  # no-op — simulates a broken tokenizer
+        def detokenize(self, text):
+            return text
+
+    chat = _RedactingChat(
+        inner=inner,
+        log_path=tmp_path / "audit.jsonl",
+        provider="openai",
+        model_name="gpt-5.4-mini",
+        tokenizer=BrokenTokenizer(),
+    )
+
+    from cookbooks._shared.pii import PIILeakError
+    with pytest.raises(PIILeakError):
+        chat.invoke([("user", "Sort code 00-11-22 must be blocked.")])
+
+    # Inner must NOT have been called — the tripwire fired first.
+    assert inner.last_messages is None
