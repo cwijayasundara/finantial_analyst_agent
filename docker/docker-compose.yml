@@ -1,0 +1,23 @@
+# openclaw — single compose file for all infra.
+# Neo4j is added in PR 2.2; for now Postgres only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: openclaw-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: openclaw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — see docker/.env.example}
+      POSTGRES_DB: openclaw
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openclaw -d openclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -53,3 +53,8 @@ htmlcov/
 node_modules/
 web/dist/
 web/.vite/
+
+# Postgres / Docker
+docker/.env
+db/postgres/migrations/__pycache__/
+*.duckdb.wal
