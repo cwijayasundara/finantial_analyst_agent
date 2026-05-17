@@ -15,6 +15,10 @@ ONT_DIR = Path(__file__).parent
 class ObjectType(BaseModel):
     id: str
     description: str = ""
+    embedding_field: str | None = None
+    embedding_dim: int | None = None
+    text_search_fields: list[str] = Field(default_factory=list)
+    id_template: str = ""
 
 
 class LinkType(BaseModel):
@@ -32,15 +36,22 @@ class ActionType(BaseModel):
     scopes: list[str] = Field(default_factory=list)
 
 
+class Meta(BaseModel):
+    schema_version: int
+    embedding_model: str
+    embedding_dim: int
+
+
 class Ontology(BaseModel):
     object_types: list[ObjectType]
     link_types: list[LinkType]
     action_types: list[ActionType]
+    meta: Meta
 
 
 @cache
 def load_ontology() -> Ontology:
-    """Load and validate the three ontology YAML files. Cached per process."""
+    """Load and validate the four ontology YAML files. Cached per process."""
     object_types = [
         ObjectType(**d) for d in yaml.safe_load((ONT_DIR / "object_types.yaml").read_text())
     ]
@@ -50,10 +61,12 @@ def load_ontology() -> Ontology:
     action_types = [
         ActionType(**d) for d in yaml.safe_load((ONT_DIR / "action_types.yaml").read_text())
     ]
+    meta = Meta(**yaml.safe_load((ONT_DIR / "meta.yaml").read_text()))
     return Ontology(
         object_types=object_types,
         link_types=link_types,
         action_types=action_types,
+        meta=meta,
     )
 
 
