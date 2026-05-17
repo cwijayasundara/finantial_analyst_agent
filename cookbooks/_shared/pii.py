@@ -85,6 +85,10 @@ def _mask_card_pan(text: str) -> str:
     return _CARD_PAN_SEPARATED.sub(repl, text)
 
 
+# NOTE: `_PIPELINE`, `_CARD_PAN_SEPARATED`, and `_luhn_ok` are imported
+# by `pii_tokenizer.py` which builds a round-trip tokenizer on top of
+# the one-way masker here. Treat them as effectively module-public; if
+# you rename them, update pii_tokenizer.py in the same change.
 _PIPELINE: tuple[tuple[re.Pattern[str], str], ...] = (
     (_EMAIL, "[EMAIL]"),
     (_IBAN, "[IBAN]"),

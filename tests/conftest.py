@@ -24,5 +24,13 @@ def tmp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     monkeypatch.setenv("PFH_LLM_MODEL",   "ollama:qwen3.6:35b")
     monkeypatch.delenv("PFH_ALLOW_REMOTE_LLM", raising=False)
+    monkeypatch.delenv("PFH_PII_DENYLIST", raising=False)
 
     yield tmp_path
+
+
+@pytest.fixture
+def pii_tokenizer():
+    """Fresh PiiTokenizer per test — never share across tests."""
+    from cookbooks._shared.pii_tokenizer import PiiTokenizer
+    return PiiTokenizer()

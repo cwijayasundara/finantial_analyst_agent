@@ -11,12 +11,16 @@ No other providers are accepted under any flag. We use
 `langchain.chat_models.init_chat_model` as the single construction
 entry point so provider-specific imports stay in one place.
 
-Remote calls are wrapped in `_AuditingChat`, which appends every prompt
-and response to `data/openai_audit.jsonl`. This gives the operator an
-out-of-band record of exactly what hit the wire.
+Remote calls are wrapped in `_RedactingChat`, which tokenizes outgoing
+PII via `PiiTokenizer`, applies `assert_no_pii` as a final fail-closed
+tripwire, calls the inner model, detokenizes the response, and appends
+an audit record (with `prompt_sha256` of the original — never the raw
+PII) to `data/openai_audit.jsonl`. The legacy `_AuditingChat` name
+remains as a deprecated alias for one PR cycle.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -29,6 +33,7 @@ from langchain_core.language_models import BaseChatModel
 
 from cookbooks._shared.config import load_settings
 from cookbooks._shared.pii import assert_no_pii
+from cookbooks._shared.pii_tokenizer import PiiTokenizer
 
 _REMOTE_FLAG = "PFH_ALLOW_REMOTE_LLM"
 _REMOTE_TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -57,44 +62,120 @@ def _normalise_messages(messages: Any) -> list[dict[str, str]]:
     return [{"role": "unknown", "content": str(messages)}]
 
 
-class _AuditingChat:
-    """Proxy that logs every `.invoke` payload + response, then delegates.
+class _RedactingChat:
+    """Proxy that tokenizes outgoing PII, fail-closes on leaks, logs the call.
 
-    Thread-safe: a per-instance lock serialises audit-log writes so
-    concurrent .invoke calls cannot interleave bytes in the JSONL file.
-    The wrapped model itself (langchain ChatOpenAI / ChatOllama) is
-    already safe for concurrent .invoke from multiple threads.
+    Round-trip:
+      1. Tokenize every message via the session's PiiTokenizer
+         (PERSON_001, SORT_001, ...) so the LLM still has co-reference.
+      2. Apply `assert_no_pii` as a final tripwire on the tokenized
+         payload — if anything PII-shaped survived, raise PIILeakError
+         BEFORE the HTTP call.
+      3. Call the wrapped model.
+      4. Detokenize the response so the user sees the original entities.
+      5. Append a record to the audit JSONL: redacted prompt + sha256 of
+         the original (for forensic proof without storing the leak).
+
+    Thread-safety: the PiiTokenizer is per-instance/per-session; do NOT
+    share a _RedactingChat across concurrent sessions. The audit log
+    write is serialized by a per-instance lock.
     """
 
-    def __init__(self, inner: BaseChatModel, log_path: Path, provider: str, model_name: str):
+    def __init__(
+        self,
+        inner: BaseChatModel,
+        log_path: Path,
+        provider: str,
+        model_name: str,
+        tokenizer: PiiTokenizer | None = None,
+    ):
         self._inner = inner
         self._log_path = log_path
         self._provider = provider
         self._model_name = model_name
+        self._tokenizer = tokenizer or PiiTokenizer()
         self._log_lock = threading.Lock()
 
     def invoke(self, messages: Any, **kwargs: Any) -> Any:
         normalised = _normalise_messages(messages)
-        # Final residual-PII guard: refuse to send if any high-risk
-        # pattern survived upstream masking. Raises PIILeakError.
+        # 1. Tokenize each message content; record per-message hash of original.
+        redacted_messages: list[dict[str, str]] = []
+        prompt_hashes: list[str] = []
         for msg in normalised:
-            assert_no_pii(msg["content"])
+            original = msg["content"]
+            prompt_hashes.append(hashlib.sha256(original.encode("utf-8")).hexdigest())
+            tokenized = self._tokenizer.tokenize(original)
+            # 2. Tripwire — raises PIILeakError if anything PII-shaped survived.
+            assert_no_pii(tokenized)
+            redacted_messages.append({"role": msg["role"], "content": tokenized})
 
-        result = self._inner.invoke(messages, **kwargs)
+        # 3. Call inner model with tokenized messages. Reconstruct the same
+        #    shape the caller passed in (list of (role, content) tuples).
+        redacted_payload = [(m["role"], m["content"]) for m in redacted_messages]
+        result = self._inner.invoke(redacted_payload, **kwargs)
+
+        # 4. Detokenize the response so the user sees real entities.
+        response_content = getattr(result, "content", str(result))
+        if isinstance(response_content, str):
+            restored = self._tokenizer.detokenize(response_content)
+            # Mutate in place when we can (langchain message objects).
+            try:
+                result.content = restored
+            except (AttributeError, TypeError):
+                # Some response types are immutable — return a stand-in.
+                result = _RestoredResponse(restored, original=result)
+            response_for_log = restored
+        else:
+            response_for_log = str(response_content)
+
+        # 5. Audit log: redacted prompt + sha256 of original; never the raw PII.
         record = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "provider": self._provider,
             "model": self._model_name,
-            "messages": normalised,
-            "response": getattr(result, "content", str(result)),
+            "messages": redacted_messages,
+            "prompt_sha256": prompt_hashes,
+            "response": response_for_log,
         }
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
         with self._log_lock, self._log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         return result
 
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_RedactingChat":
+        """Return a new _RedactingChat wrapping the bound inner model.
+
+        Crucial: `__getattr__` would otherwise dispatch this to the raw
+        inner model and return an unwrapped langchain object — every
+        subsequent invoke would bypass tokenization and the tripwire.
+        We re-wrap explicitly and share the tokenizer instance so
+        session co-reference survives across binds.
+        """
+        bound_inner = self._inner.bind_tools(tools, **kwargs)
+        return _RedactingChat(
+            inner=bound_inner,
+            log_path=self._log_path,
+            provider=self._provider,
+            model_name=self._model_name,
+            tokenizer=self._tokenizer,
+        )
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
+
+
+class _RestoredResponse:
+    """Stand-in wrapper for response types whose .content is read-only."""
+    def __init__(self, content: str, original: Any):
+        self.content = content
+        self._original = original
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._original, name)
+
+
+# Backwards-compatible alias. Remove after one PR cycle of deprecation.
+_AuditingChat = _RedactingChat
 
 
 def parse_model_id(model_id: str) -> tuple[str, str]:
@@ -141,7 +222,13 @@ def build_chat_model(model: str | None = None) -> BaseChatModel:
             model_provider=provider,
             temperature=0.0,
         )
-        return _AuditingChat(inner, _audit_log_path(), provider, name)
+        return _RedactingChat(
+            inner=inner,
+            log_path=_audit_log_path(),
+            provider=provider,
+            model_name=name,
+            tokenizer=PiiTokenizer(),
+        )
 
     raise ValueError(
         f"Only 'ollama' (default) or 'openai' (with PFH_ALLOW_REMOTE_LLM=true) "
