@@ -31,6 +31,8 @@ from cookbooks._shared.ontology._naming import (
 )
 from cookbooks._shared.ontology.loader import ObjectType, Ontology, load_ontology
 
+# parents[3]: cookbooks/_shared/ontology/gen_init_cypher.py → repo root.
+# If this module moves, update the index.
 OUTPUT_PATH = Path(__file__).resolve().parents[3] / "db" / "neo4j" / "init.cypher"
 
 
@@ -49,6 +51,10 @@ def _vector_index_lines(ot: ObjectType, meta_dim: int) -> list[str]:
     label = object_id_to_label(ot.id)
     name = object_id_to_vector_index_name(ot.id, ot.embedding_field)
     dim = ot.embedding_dim or meta_dim
+    # Invariant: every embedded ObjectType stores its vector in the
+    # property named exactly `embedding`. `embedding_field` in the
+    # ontology names the SOURCE TEXT that gets embedded (used only
+    # to name the index distinctly) — it does NOT name the property.
     return [
         f"CREATE VECTOR INDEX {name} IF NOT EXISTS",
         f"FOR (n:{label}) ON (n.embedding)",
@@ -73,10 +79,15 @@ def _fulltext_index_lines(ot: ObjectType) -> list[str]:
 
 def _meta_lines(ont: Ontology) -> list[str]:
     m = ont.meta
+    # Escape single quotes so a model name with an apostrophe doesn't
+    # break the emitted Cypher. Practical risk is near zero since the
+    # value comes from meta.yaml (developer-controlled), but the cost
+    # of the guard is one method call.
+    safe_model = m.embedding_model.replace("'", "\\'")
     return [
         "MERGE (m:Meta {id: 'schema'}) SET",
         f"  m.schema_version = {m.schema_version},",
-        f"  m.embedding_model = '{m.embedding_model}',",
+        f"  m.embedding_model = '{safe_model}',",
         f"  m.embedding_dim = {m.embedding_dim};",
     ]
 
