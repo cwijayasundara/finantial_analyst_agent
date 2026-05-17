@@ -345,3 +345,40 @@ def test_redacting_chat_tripwire_blocks_unredacted_pii(tmp_path):
 
     # Inner must NOT have been called — the tripwire fired first.
     assert inner.last_messages is None
+
+
+def test_redacting_chat_bind_tools_preserves_redaction(tmp_path):
+    """Regression: bind_tools must not return an unwrapped langchain object.
+
+    If __getattr__ delegates bind_tools to the inner model, the returned
+    bound object bypasses tokenization on every subsequent invoke — a
+    Tier-0 leak.
+    """
+    class _BindableStub(_StubInner):
+        def bind_tools(self, tools, **kwargs):
+            # Simulate langchain: return a NEW object (a separate stub here).
+            new_stub = _BindableStub(self._response_content)
+            new_stub.bound_tools = tools
+            return new_stub
+
+    inner = _BindableStub("ok")
+    log_path = tmp_path / "audit.jsonl"
+    chat = _RedactingChat(
+        inner=inner,
+        log_path=log_path,
+        provider="openai",
+        model_name="gpt-5.4-mini",
+        tokenizer=PiiTokenizer(),
+    )
+
+    bound = chat.bind_tools([{"name": "tool_a"}])
+    # The returned object must itself be a _RedactingChat — not the raw stub.
+    assert isinstance(bound, _RedactingChat)
+    # And the tokenizer must be the SAME instance (session continuity).
+    assert bound._tokenizer is chat._tokenizer
+
+    # Drive a real invoke through the bound chat — must still tokenize PII.
+    bound.invoke([("user", "John Smith spent £42 at Costco.")])
+    sent = str(bound._inner.last_messages)
+    assert "John Smith" not in sent
+    assert "<<PERSON_" in sent

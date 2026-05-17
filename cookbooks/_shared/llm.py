@@ -11,9 +11,12 @@ No other providers are accepted under any flag. We use
 `langchain.chat_models.init_chat_model` as the single construction
 entry point so provider-specific imports stay in one place.
 
-Remote calls are wrapped in `_AuditingChat`, which appends every prompt
-and response to `data/openai_audit.jsonl`. This gives the operator an
-out-of-band record of exactly what hit the wire.
+Remote calls are wrapped in `_RedactingChat`, which tokenizes outgoing
+PII via `PiiTokenizer`, applies `assert_no_pii` as a final fail-closed
+tripwire, calls the inner model, detokenizes the response, and appends
+an audit record (with `prompt_sha256` of the original — never the raw
+PII) to `data/openai_audit.jsonl`. The legacy `_AuditingChat` name
+remains as a deprecated alias for one PR cycle.
 """
 from __future__ import annotations
 
@@ -138,6 +141,24 @@ class _RedactingChat:
         with self._log_lock, self._log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         return result
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "_RedactingChat":
+        """Return a new _RedactingChat wrapping the bound inner model.
+
+        Crucial: `__getattr__` would otherwise dispatch this to the raw
+        inner model and return an unwrapped langchain object — every
+        subsequent invoke would bypass tokenization and the tripwire.
+        We re-wrap explicitly and share the tokenizer instance so
+        session co-reference survives across binds.
+        """
+        bound_inner = self._inner.bind_tools(tools, **kwargs)
+        return _RedactingChat(
+            inner=bound_inner,
+            log_path=self._log_path,
+            provider=self._provider,
+            model_name=self._model_name,
+            tokenizer=self._tokenizer,
+        )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)

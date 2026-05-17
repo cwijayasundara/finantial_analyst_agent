@@ -15,6 +15,7 @@ Categories you will see:
   - IBAN     — an IBAN
   - NI       — a UK National Insurance number
   - NUM      — an unstructured 8+ digit run
+  - PII      — a generic fallback (any other entity Presidio surfaces)
 
 Rules:
 
