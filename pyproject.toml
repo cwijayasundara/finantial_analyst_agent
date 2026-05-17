@@ -36,6 +36,9 @@ dev = [
     "reportlab>=4.0",
 ]
 
+[project.scripts]
+openclaw-gen-ontology = "cookbooks._shared.ontology.gen_all:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -1,0 +1,5 @@
+# Ontology meta — version + embedding configuration.
+# Bumped only when the graph schema or vector index dimensions change.
+schema_version: 1
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+embedding_dim: 384

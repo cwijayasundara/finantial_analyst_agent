@@ -1,32 +1,76 @@
 # Object Types — node classes in the typed graph.
+# Each entry: id, description, [embedding_field], [embedding_dim],
+# [text_search_fields], id_template.
 - id: Account
   description: A bank or credit-card account.
+  id_template: account::<sha256-of-number>
+
 - id: Statement
   description: One source PDF for a billing/statement period.
+  id_template: statement::<sha256-of-pdf>
+
 - id: Transaction
-  description: One ledger row; projected from DuckDB at compile time.
+  description: One ledger row; projected from Postgres at compile time.
+  embedding_field: clean_description
+  embedding_dim: 384
+  id_template: tx::<statement-id>::<row>
+
 - id: Merchant
   description: Canonical merchant entity with surface-form aliases.
+  embedding_field: canonical_name
+  embedding_dim: 384
+  text_search_fields: [canonical_name, aliases]
+  id_template: merchant::<canonical-slug>
+
 - id: Category
   description: Hierarchical spending category.
+  id_template: category::<slug>
+
 - id: Subscription
-  description: Detected recurring payment to a merchant.
+  description: Detected recurring payment to a merchant. Wiki page IDs use sub_<merchant-slug>; the id_template below is the canonical Neo4j node ID shape introduced by the upgrade.
+  id_template: subscription::<merchant-id>::<cadence>
+
 - id: Memo
-  description: Monthly analyst-produced summary.
+  description: Monthly analyst-produced summary; content lives in wiki/memos/.
+  embedding_field: text
+  embedding_dim: 384
+  id_template: memo::<period>
+
 - id: Decision
-  description: Audited record of an Action invocation. Captures actor, scopes, inputs, result, fingerprints.
+  description: Audited record of an Action invocation; content lives in wiki/decisions/.
+  id_template: decision::<uuid>
+
 - id: Annotation
   description: Manual user note attached to a transaction.
+  id_template: annotation::<uuid>
+
 # --- P4 ---
 - id: Budget
   description: A monthly or annual spending target for a Category or Merchant.
+  id_template: budget::<scope>::<period>
+
 # --- P5 ---
 - id: Recommendation
   description: An actionable suggestion from the advisor cookbook.
+  id_template: recommendation::<uuid>
+
 - id: ConceptReview
   description: A queued question for the user to resolve manually.
+  id_template: concept_review::<uuid>
+
 # --- P7 ---
 - id: Goal
   description: A target dollar amount to reach by a deadline; underpins plan-mode advice.
+  id_template: goal::<slug>
+
 - id: NetWorthSnapshot
   description: Multi-account total position at a specific period boundary.
+  id_template: networth::<period>
+
+# --- Tier 3 (semantic concept layer) ---
+- id: Concept
+  description: Derived semantic concept ("subscription bloat", etc.) — populated in Tier 3.
+  embedding_field: name
+  embedding_dim: 384
+  text_search_fields: [name, description]
+  id_template: concept::<slug>
