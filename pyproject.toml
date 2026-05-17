@@ -20,6 +20,8 @@ dependencies = [
     "python-dotenv>=1.0",
     "presidio-analyzer>=2.2",
     "spacy>=3.7,<4",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "reportlab>=4.0",
+    "testcontainers[postgres]>=4.5",
 ]
 
 [project.scripts]
