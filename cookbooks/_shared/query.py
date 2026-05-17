@@ -15,17 +15,10 @@ import re
 from typing import Any
 
 from cookbooks._shared.config import load_settings
+from cookbooks._shared.tools.safety import QueryRejectedError, reject_write_keywords
 
 _DEFAULT_ROW_LIMIT = 200
-_FORBIDDEN = re.compile(
-    r"\b(?:CREATE|MERGE|DELETE|SET|DROP|ALTER|REMOVE|DETACH)\b",
-    re.IGNORECASE,
-)
 _TRAILING_LIMIT = re.compile(r"\bLIMIT\s+\d+\s*;?\s*$", re.IGNORECASE)
-
-
-class QueryRejectedError(RuntimeError):
-    """Raised when a Cypher query contains a forbidden mutation keyword."""
 
 
 def _resolve_limit() -> int:
@@ -64,16 +57,6 @@ def _strip_string_literals(cypher: str) -> str:
     return "".join(out)
 
 
-def _enforce_safety(cypher: str) -> None:
-    scanned = _strip_string_literals(cypher)
-    m = _FORBIDDEN.search(scanned)
-    if m:
-        raise QueryRejectedError(
-            f"forbidden mutation keyword {m.group(0).upper()!r} in query "
-            f"(query_graph is read-only)"
-        )
-
-
 def _enforce_row_cap(cypher: str, cap: int) -> str:
     """Append `LIMIT <cap>` if the query doesn't already specify one."""
     if _TRAILING_LIMIT.search(cypher):
@@ -89,7 +72,7 @@ def query_graph(cypher: str, params: dict[str, Any] | None = None) -> list[dict[
     file doesn't exist yet, returns an empty list rather than raising —
     callers shouldn't have to special-case a fresh workspace.
     """
-    _enforce_safety(cypher)
+    reject_write_keywords(cypher)
     cap = _resolve_limit()
     cypher = _enforce_row_cap(cypher, cap)
 
