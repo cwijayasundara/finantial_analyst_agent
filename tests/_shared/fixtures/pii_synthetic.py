@@ -60,9 +60,9 @@ CARD_PAN_NOT_LUHN = PiiFixture(
 )
 
 MIXED_KITCHEN_SINK = PiiFixture(
-    name="kitchen_sink",
+    name="mixed_kitchen_sink",
     text=(
-        "Jane Doe (jane@doe.uk, +44 20 7946 0958) at 7 Baker Street, "
+        "Jane Doe (jane@example.co.uk, +44 20 7946 0958) at 7 Baker Street, "
         "London NW1 6XE, sort 00-11-22 acct 00012345, IBAN "
         "GB29NWBK60161331926819, NI AB123456C, spent £42 at Costco."
     ),
