@@ -105,3 +105,32 @@ def test_isolation_between_tokenizer_instances():
     # from 1 again.
     out_b = b.tokenize("Sort code 00-11-22.")
     assert "<<SORT_001>>" in out_b
+
+
+def test_round_trip_above_999_tokens_per_category():
+    """Counter overflow regression — ensures detokenize regex matches >3-digit ids."""
+    tok = PiiTokenizer()
+    # Generate 1001 distinct sort codes; tokens will be SORT_0001 onwards.
+    inputs = [f"Sort code {i:02d}-{j:02d}-{k:02d}." for i in range(10, 20) for j in range(10, 20) for k in range(10, 21)][:1001]
+    redacted = [tok.tokenize(s) for s in inputs]
+    # The 1000th distinct sort code gets SORT_1000.
+    assert "<<SORT_1000>>" in redacted[999]
+    # Round-trip the 1000th (4-digit counter) — must restore the original verbatim.
+    assert tok.detokenize(redacted[999]) == inputs[999]
+
+
+def test_acct_upgrade_case_insensitive():
+    """NUM→ACCT upgrade should fire regardless of keyword casing."""
+    tok = PiiTokenizer()
+    out_lower = tok.tokenize("Transferred from account 12345678 today.")
+    assert "<<ACCT_" in out_lower
+
+    tok2 = PiiTokenizer()
+    out_upper = tok2.tokenize("Transferred from ACCOUNT 87654321 today.")
+    assert "<<ACCT_" in out_upper
+
+    tok3 = PiiTokenizer()
+    # No keyword in the 30-char window before -> plain NUM, not ACCT.
+    out_plain = tok3.tokenize("Reference number 99999999 attached.")
+    assert "<<NUM_" in out_plain
+    assert "<<ACCT_" not in out_plain

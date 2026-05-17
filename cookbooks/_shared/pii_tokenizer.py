@@ -107,7 +107,7 @@ class PiiTokenizer:
         if not text:
             return ""
         import re
-        token_re = re.compile(r"<<([A-Z]+)_(\d{3})>>")
+        token_re = re.compile(r"<<([A-Z]+)_(\d+)>>")
 
         def repl(m):
             rendered = m.group(0)
@@ -138,9 +138,13 @@ class PiiTokenizer:
         spans = detect_persons_and_addresses(text)
         if not spans:
             return text
-        # Sort longest-first to avoid replacing substrings of longer matches.
+        # First sort: longest-first establishes deterministic token-numbering
+        # order when two spans share the same start offset (Python sort is stable).
+        # This relies on Presidio returning non-overlapping spans; if that ever
+        # changes, a non-overlapping merge step would need to be added here.
         spans = sorted(spans, key=lambda s: (s.end - s.start, -s.start), reverse=True)
-        # Replace span-by-span in reverse offset order so earlier offsets stay valid.
+        # Second sort: reverse offset order. Replacing later spans first keeps
+        # earlier spans' offsets valid as we mutate `out`.
         spans_by_offset = sorted(spans, key=lambda s: s.start, reverse=True)
         out = text
         for s in spans_by_offset:
