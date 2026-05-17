@@ -63,3 +63,33 @@ def test_settings_rejects_non_loopback(tmp_workspace: Path, monkeypatch, url: st
     monkeypatch.setenv("OLLAMA_BASE_URL", url)
     with pytest.raises(ValueError, match="loopback"):
         load_settings()
+
+
+def test_default_ledger_backend_is_duckdb(monkeypatch):
+    monkeypatch.delenv("PFH_LEDGER_BACKEND", raising=False)
+    from cookbooks._shared.config import load_settings
+    if hasattr(load_settings, "cache_clear"):
+        load_settings.cache_clear()
+    s = load_settings()
+    assert s.ledger.backend == "duckdb"
+
+
+def test_ledger_backend_postgres_when_env_set(monkeypatch):
+    monkeypatch.setenv("PFH_LEDGER_BACKEND", "postgres")
+    monkeypatch.setenv("PFH_PG_URL", "postgresql://openclaw:pw@127.0.0.1:5432/openclaw")
+    from cookbooks._shared.config import load_settings
+    if hasattr(load_settings, "cache_clear"):
+        load_settings.cache_clear()
+    s = load_settings()
+    assert s.ledger.backend == "postgres"
+    assert s.ledger.pg_url.startswith("postgresql://")
+
+
+def test_invalid_backend_raises(monkeypatch):
+    monkeypatch.setenv("PFH_LEDGER_BACKEND", "sqlite")
+    from cookbooks._shared.config import load_settings
+    if hasattr(load_settings, "cache_clear"):
+        load_settings.cache_clear()
+    import pytest
+    with pytest.raises(ValueError, match="PFH_LEDGER_BACKEND"):
+        load_settings()

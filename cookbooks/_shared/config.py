@@ -71,10 +71,25 @@ class IngestConfig(BaseModel):
     recurring_amount_tolerance_pct: float = 5.0
 
 
+class LedgerSettings(BaseModel):
+    backend: str = "duckdb"
+    pg_url: str = "postgresql://openclaw:local-dev@127.0.0.1:5432/openclaw"
+
+    @field_validator("backend")
+    @classmethod
+    def _check_backend(cls, v: str) -> str:
+        if v not in ("duckdb", "postgres"):
+            raise ValueError(
+                f"PFH_LEDGER_BACKEND must be 'duckdb' or 'postgres', got {v!r}"
+            )
+        return v
+
+
 class Settings(BaseModel):
     paths: Paths
     llm: LLMConfig = Field(default_factory=LLMConfig)
     ingest: IngestConfig = Field(default_factory=IngestConfig)
+    ledger: LedgerSettings = Field(default_factory=LedgerSettings)
 
 
 def load_settings() -> Settings:
@@ -97,4 +112,11 @@ def load_settings() -> Settings:
         embed_model=os.environ.get("PFH_EMBED_MODEL", "ollama:nomic-embed-text"),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
     )
-    return Settings(paths=paths, llm=llm)
+    ledger = LedgerSettings(
+        backend=os.environ.get("PFH_LEDGER_BACKEND", "duckdb"),
+        pg_url=os.environ.get(
+            "PFH_PG_URL",
+            "postgresql://openclaw:local-dev@127.0.0.1:5432/openclaw",
+        ),
+    )
+    return Settings(paths=paths, llm=llm, ledger=ledger)

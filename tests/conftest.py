@@ -25,6 +25,8 @@ def tmp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
     monkeypatch.setenv("PFH_LLM_MODEL",   "ollama:qwen3.6:35b")
     monkeypatch.delenv("PFH_ALLOW_REMOTE_LLM", raising=False)
     monkeypatch.delenv("PFH_PII_DENYLIST", raising=False)
+    monkeypatch.delenv("PFH_LEDGER_BACKEND", raising=False)
+    monkeypatch.delenv("PFH_PG_URL", raising=False)
 
     yield tmp_path
 
