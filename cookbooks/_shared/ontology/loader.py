@@ -37,6 +37,12 @@ class ActionType(BaseModel):
 
 
 class Meta(BaseModel):
+    """Ontology-wide metadata.
+
+    `embedding_dim` is the project-wide default; per-ObjectType
+    `embedding_dim` may override it (e.g. if a single type uses a
+    different model). Most ObjectTypes inherit from here.
+    """
     schema_version: int
     embedding_model: str
     embedding_dim: int

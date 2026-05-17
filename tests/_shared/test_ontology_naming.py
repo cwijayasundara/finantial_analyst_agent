@@ -38,3 +38,15 @@ def test_object_id_to_vector_index_name():
 
 def test_object_id_to_fulltext_index_name():
     assert object_id_to_fulltext_index_name("Merchant") == "merchant_fulltext"
+
+
+def test_object_id_to_constraint_name_multi_word():
+    assert object_id_to_constraint_name("NetWorthSnapshot") == "net_worth_snapshot_id_unique"
+
+
+def test_object_id_to_vector_index_name_multi_word():
+    assert object_id_to_vector_index_name("NetWorthSnapshot", "amount") == "net_worth_snapshot_amount_vec"
+
+
+def test_object_id_to_fulltext_index_name_multi_word():
+    assert object_id_to_fulltext_index_name("ConceptReview") == "concept_review_fulltext"

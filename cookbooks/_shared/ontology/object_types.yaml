@@ -27,7 +27,7 @@
   id_template: category::<slug>
 
 - id: Subscription
-  description: Detected recurring payment to a merchant.
+  description: Detected recurring payment to a merchant. Wiki page IDs use sub_<merchant-slug>; the id_template below is the canonical Neo4j node ID shape introduced by the upgrade.
   id_template: subscription::<merchant-id>::<cadence>
 
 - id: Memo
@@ -67,7 +67,7 @@
   description: Multi-account total position at a specific period boundary.
   id_template: networth::<period>
 
-# --- New for Neo4j upgrade ---
+# --- Tier 3 (semantic concept layer) ---
 - id: Concept
   description: Derived semantic concept ("subscription bloat", etc.) — populated in Tier 3.
   embedding_field: name
