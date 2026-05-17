@@ -85,6 +85,19 @@ class LedgerSettings(BaseModel):
         return v
 
 
+class QaAgentSettings(BaseModel):
+    framework: str = "legacy"
+
+    @field_validator("framework")
+    @classmethod
+    def _check_framework(cls, v: str) -> str:
+        if v not in ("legacy", "deepagent"):
+            raise ValueError(
+                f"PFH_QA_AGENT must be 'legacy' or 'deepagent', got {v!r}"
+            )
+        return v
+
+
 class Neo4jSettings(BaseModel):
     url: str = "bolt://127.0.0.1:7687"
     user: str = "neo4j"
@@ -98,6 +111,7 @@ class Settings(BaseModel):
     ingest: IngestConfig = Field(default_factory=IngestConfig)
     ledger: LedgerSettings = Field(default_factory=LedgerSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
+    qa_agent: QaAgentSettings = Field(default_factory=QaAgentSettings)
 
 
 def load_settings() -> Settings:
@@ -133,4 +147,7 @@ def load_settings() -> Settings:
         password=os.environ.get("PFH_NEO4J_PASSWORD", "local-dev"),
         database=os.environ.get("PFH_NEO4J_DATABASE", "neo4j"),
     )
-    return Settings(paths=paths, llm=llm, ledger=ledger, neo4j=neo4j)
+    qa_agent = QaAgentSettings(
+        framework=os.environ.get("PFH_QA_AGENT", "legacy"),
+    )
+    return Settings(paths=paths, llm=llm, ledger=ledger, neo4j=neo4j, qa_agent=qa_agent)

@@ -93,3 +93,31 @@ def test_invalid_backend_raises(monkeypatch):
     import pytest
     with pytest.raises(ValueError, match="PFH_LEDGER_BACKEND"):
         load_settings()
+
+
+def test_default_qa_agent_framework_is_legacy(monkeypatch):
+    monkeypatch.delenv("PFH_QA_AGENT", raising=False)
+    from cookbooks._shared.config import load_settings
+    if hasattr(load_settings, "cache_clear"):
+        load_settings.cache_clear()
+    s = load_settings()
+    assert s.qa_agent.framework == "legacy"
+
+
+def test_qa_agent_deepagent_when_env_set(monkeypatch):
+    monkeypatch.setenv("PFH_QA_AGENT", "deepagent")
+    from cookbooks._shared.config import load_settings
+    if hasattr(load_settings, "cache_clear"):
+        load_settings.cache_clear()
+    s = load_settings()
+    assert s.qa_agent.framework == "deepagent"
+
+
+def test_invalid_qa_agent_raises(monkeypatch):
+    monkeypatch.setenv("PFH_QA_AGENT", "swarm")
+    from cookbooks._shared.config import load_settings
+    if hasattr(load_settings, "cache_clear"):
+        load_settings.cache_clear()
+    import pytest
+    with pytest.raises(ValueError, match="PFH_QA_AGENT"):
+        load_settings()

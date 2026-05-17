@@ -168,3 +168,47 @@ def build_qa_agent(
         )
 
     return _invoke
+
+
+# --- Dispatcher: legacy vs deepagent ---
+
+_legacy_build_qa_agent = build_qa_agent  # snapshot the original before redefining
+
+
+def build_qa_agent(  # type: ignore[redefined-outer-name]
+    chat=None,
+    *,
+    allow_writes: bool = False,
+    max_iterations: int = 12,
+) -> Callable[[str], "AgentResponse"]:
+    """Dispatch on PFH_QA_AGENT.
+
+    Default ('legacy'): hand-rolled tool loop (this module's original).
+    'deepagent': DeepAgents 0.6 with researcher/synthesizer/critic.
+    """
+    from cookbooks._shared.config import load_settings
+
+    framework = load_settings().qa_agent.framework
+    if framework == "deepagent":
+        from cookbooks._shared.agents.qa_agent import (
+            build_qa_agent as _build_deepagent,
+        )
+
+        deep = _build_deepagent(chat=chat)
+
+        def _adapter(question: str) -> AgentResponse:
+            result = deep(question)
+            return AgentResponse(
+                answer=result.get("answer", ""),
+                tool_calls=result.get("tool_calls", []),
+                iterations=len(result.get("tool_calls", [])),
+                refused=[],
+            )
+
+        return _adapter
+
+    return _legacy_build_qa_agent(
+        chat=chat,
+        allow_writes=allow_writes,
+        max_iterations=max_iterations,
+    )

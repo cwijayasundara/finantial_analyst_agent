@@ -33,6 +33,7 @@ def tmp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[P
     monkeypatch.delenv("PFH_NEO4J_USER", raising=False)
     monkeypatch.delenv("PFH_NEO4J_PASSWORD", raising=False)
     monkeypatch.delenv("PFH_NEO4J_DATABASE", raising=False)
+    monkeypatch.delenv("PFH_QA_AGENT", raising=False)
 
     yield tmp_path
 
