@@ -48,8 +48,12 @@ def _analyzer() -> AnalyzerEngine:
     return AnalyzerEngine(nlp_engine=provider.create_engine(), supported_languages=["en"])
 
 
-def detect_persons_and_addresses(text: str) -> list[Span]:
-    """Return all PERSON / LOCATION / NRP spans in `text` above the score floor."""
+def detect_persons_and_addresses(text: str | None) -> list[Span]:
+    """Return all PERSON / LOCATION / NRP spans in `text` above the score floor.
+
+    Returns ``[]`` for ``None`` or empty input, matching the safe-default
+    convention used by ``cookbooks._shared.pii.mask_pii``.
+    """
     if not text:
         return []
     results = _analyzer().analyze(text=text, entities=list(_NER_ENTITIES), language="en")

@@ -21,9 +21,9 @@ def test_detects_uk_address_and_postcode():
     spans = detect_persons_and_addresses(UK_ADDRESS.text)
     labels = {s.label for s in spans}
     # Presidio surfaces street-style addresses under LOCATION; the postcode
-    # is caught separately by the regex layer (not here). We assert only
-    # what the NER stage is responsible for.
-    assert "LOCATION" in labels or "ADDRESS" in labels
+    # is caught by the regex layer in pii.py, not here. So we only assert
+    # the LOCATION label.
+    assert "LOCATION" in labels
 
 
 def test_kitchen_sink_gets_person():
