@@ -22,6 +22,7 @@ dependencies = [
     "spacy>=3.7,<4",
     "psycopg[binary]>=3.2",
     "alembic>=1.13",
+    "neo4j>=5.20",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,7 @@ dev = [
     "mypy>=1.11",
     "reportlab>=4.0",
     "testcontainers[postgres]>=4.5",
+    "testcontainers[neo4j]>=4.5",
 ]
 
 [project.scripts]
