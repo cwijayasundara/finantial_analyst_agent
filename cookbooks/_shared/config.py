@@ -85,11 +85,19 @@ class LedgerSettings(BaseModel):
         return v
 
 
+class Neo4jSettings(BaseModel):
+    url: str = "bolt://127.0.0.1:7687"
+    user: str = "neo4j"
+    password: str = "local-dev"
+    database: str = "neo4j"  # Community has only the default DB
+
+
 class Settings(BaseModel):
     paths: Paths
     llm: LLMConfig = Field(default_factory=LLMConfig)
     ingest: IngestConfig = Field(default_factory=IngestConfig)
     ledger: LedgerSettings = Field(default_factory=LedgerSettings)
+    neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
 
 
 def load_settings() -> Settings:
@@ -119,4 +127,10 @@ def load_settings() -> Settings:
             "postgresql://openclaw:local-dev@127.0.0.1:5432/openclaw",
         ),
     )
-    return Settings(paths=paths, llm=llm, ledger=ledger)
+    neo4j = Neo4jSettings(
+        url=os.environ.get("PFH_NEO4J_URL", "bolt://127.0.0.1:7687"),
+        user=os.environ.get("PFH_NEO4J_USER", "neo4j"),
+        password=os.environ.get("PFH_NEO4J_PASSWORD", "local-dev"),
+        database=os.environ.get("PFH_NEO4J_DATABASE", "neo4j"),
+    )
+    return Settings(paths=paths, llm=llm, ledger=ledger, neo4j=neo4j)
