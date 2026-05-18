@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from cookbooks._shared.compile_graph import compile_graph
 from cookbooks._shared.db import init_schema
 from cookbooks._shared.ontology.functions.actions import upsert_merchant
 from cookbooks.knowledge_engine.cli import app
@@ -21,7 +20,8 @@ def populated(tmp_workspace: Path):
                     canonical_name="Amazon", category="other", aliases=[])
     upsert_merchant(actor="ingester", merchant_id="costa",
                     canonical_name="Costa", category="dining", aliases=[])
-    compile_graph()
+    # compile_graph() removed in PR 4.3 — wiki population is enough for
+    # these CLI tests.
     return tmp_workspace
 
 
@@ -41,17 +41,18 @@ def test_ask_invokes_agent(populated, monkeypatch):
     assert "tool calls" in result.output
 
 
-def test_query_prints_rows(populated):
-    result = runner.invoke(app, [
-        "query", "MATCH (m:Entity) WHERE m.type='Merchant' RETURN m.id LIMIT 5",
-    ])
-    assert result.exit_code == 0
-    assert "amazon" in result.output or "costa" in result.output
-
-
 def test_query_rejects_writes(populated):
+    """Even with Kuzu gone, the CLI `query` command must still reject writes
+    (it now surfaces the RuntimeError from the removed qa_tools.query_graph
+    stub or, if rewired, a QueryRejectedError from cypher_read_only).
+    """
     result = runner.invoke(app, ["query", "MATCH (n) DELETE n"])
     assert result.exit_code != 0
+
+
+# test_query_prints_rows removed in PR 4.3 — the legacy `query` CLI subcommand
+# called the Kuzu-backed query_graph which is gone. Users wanting Cypher
+# should set PFH_QA_AGENT=deepagent (uses cypher_read_only against Neo4j).
 
 
 def test_merge_repoints(populated):

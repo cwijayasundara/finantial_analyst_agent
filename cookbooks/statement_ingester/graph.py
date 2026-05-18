@@ -4,7 +4,6 @@ from __future__ import annotations
 from langgraph.graph import END, StateGraph
 
 from cookbooks.statement_ingester.nodes.categorise import categorise_node
-from cookbooks.statement_ingester.nodes.compile import compile_graph_node
 from cookbooks.statement_ingester.nodes.parse import parse_pdf_node
 from cookbooks.statement_ingester.nodes.recurring import detect_recurring_node
 from cookbooks.statement_ingester.nodes.report import report_node
@@ -38,7 +37,6 @@ def build_ingest_graph():
     g.add_node("validate",         validate_completeness_node)
     g.add_node("categorise",       categorise_node)
     g.add_node("detect_recurring", detect_recurring_node)
-    g.add_node("compile_graph",    compile_graph_node)
     g.add_node("report",           report_node)
 
     g.set_entry_point("parse")
@@ -50,7 +48,8 @@ def build_ingest_graph():
                             {"categorise": "categorise",
                              "detect_recurring": "detect_recurring"})
     g.add_edge("categorise",       "detect_recurring")
-    g.add_edge("detect_recurring", "compile_graph")
-    g.add_edge("compile_graph",    "report")
+    # compile_graph removed (was Kuzu); run `uv run python -m
+    # cookbooks._shared.compile_neo4j` manually after backfill.
+    g.add_edge("detect_recurring", "report")
     g.add_edge("report",           END)
     return g.compile()

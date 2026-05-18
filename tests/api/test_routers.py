@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from cookbooks._shared.compile_graph import compile_graph
 from cookbooks._shared.db import connect_readwrite, init_schema
 from cookbooks._shared.ontology.functions.actions import (
     publish_monthly_memo, publish_recommendation, upsert_budget,
@@ -47,7 +46,8 @@ def populated(tmp_workspace: Path):
         actor="advisor", period="2025_04", kind="anomaly_investigate",
         body_md="Investigate me.", citations=["merchant_amazon"],
     )
-    compile_graph()
+    # compile_graph() removed in PR 4.3 — the FastAPI routers covered by this
+    # test file read from DuckDB + wiki, not from a compiled Kuzu graph.
     return tmp_workspace
 
 
@@ -182,19 +182,9 @@ def test_decision_replay(client):
     assert "wiki_fingerprint_drift" in body["replay"]
 
 
-def test_graph_snapshot(client):
-    r = client.get("/api/graph/snapshot")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["node_count"] >= 1
-    assert isinstance(body["edges"], list)
-
-
-def test_graph_snapshot_filter_by_type(client):
-    r = client.get("/api/graph/snapshot", params={"type": "Merchant"})
-    assert r.status_code == 200
-    body = r.json()
-    assert all(n["type"] == "Merchant" for n in body["nodes"])
+# test_graph_snapshot* removed in PR 4.3 — the /api/graph/snapshot endpoint
+# read from the Kuzu JSONL output. Replaced by /api/graph/{node,neighbors,evidence}
+# whose coverage lives in tests/api/test_graph_traversal_router.py.
 
 
 def test_merge_preview_without_idempotency_key(client):
