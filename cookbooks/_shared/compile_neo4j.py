@@ -97,8 +97,14 @@ ON MATCH  SET n.period_start = $period_start, n.period_end = $period_end,
 
 _UPSERT_MERCHANT = """
 MERGE (n:Merchant {id: $id})
-ON CREATE SET n.canonical_name = $canonical_name, n.updated_at = timestamp()
-ON MATCH  SET n.canonical_name = $canonical_name, n.updated_at = timestamp()
+ON CREATE SET n.canonical_name = $canonical_name,
+              n.aliases = $aliases,
+              n.embedding = $embedding,
+              n.updated_at = timestamp()
+ON MATCH  SET n.canonical_name = $canonical_name,
+              n.aliases = $aliases,
+              n.embedding = $embedding,
+              n.updated_at = timestamp()
 """
 
 _UPSERT_CATEGORY = """
@@ -178,12 +184,45 @@ def _project_and_write() -> tuple[int, int]:
                 s.run(_UPSERT_CATEGORY, id=f"category::{row[0]}", name=row[1])
                 nodes += 1
 
-            # Merchants.
-            for row in conn.execute(
-                "SELECT id, canonical_name FROM merchants"
-            ).fetchall():
-                s.run(_UPSERT_MERCHANT, id=row[0], canonical_name=row[1])
-                nodes += 1
+            # Merchants — embed canonical_name + aliases for the vector
+            # branch of merchant_resolve. Batched once, not per-row, so the
+            # sentence-transformers model only loads once and gets the full
+            # batching speedup.
+            merchant_rows = conn.execute(
+                "SELECT id, canonical_name, aliases FROM merchants"
+            ).fetchall()
+            if merchant_rows:
+                from cookbooks._shared.embeddings import encode_batch
+                # Normalize aliases: DuckDB stores as JSON string; Postgres as
+                # JSONB → already a Python list. Be tolerant of both shapes.
+                import json
+                def _alias_list(raw):
+                    if raw is None:
+                        return []
+                    if isinstance(raw, list):
+                        return [str(a) for a in raw]
+                    if isinstance(raw, str):
+                        try:
+                            v = json.loads(raw)
+                            return [str(a) for a in v] if isinstance(v, list) else []
+                        except (ValueError, TypeError):
+                            return []
+                    return []
+                aliases_list = [_alias_list(r[2]) for r in merchant_rows]
+                # Embedding text combines canonical_name + aliases so the
+                # vector branch matches free-text both ways.
+                embed_texts = [
+                    " ".join([r[1] or ""] + a)
+                    for r, a in zip(merchant_rows, aliases_list)
+                ]
+                embeddings = encode_batch(embed_texts)
+                for row, aliases, embedding in zip(
+                    merchant_rows, aliases_list, embeddings,
+                ):
+                    s.run(_UPSERT_MERCHANT,
+                          id=row[0], canonical_name=row[1],
+                          aliases=aliases, embedding=embedding)
+                    nodes += 1
 
             # Transactions + edges.
             for row in conn.execute(
