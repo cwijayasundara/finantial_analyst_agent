@@ -72,7 +72,7 @@ def build_app() -> FastAPI:
 
     # Routers
     from cookbooks.api.routers import (
-        budgets, concept_reviews, decisions, forecast, goals, graph,
+        budgets, concept_reviews, decisions, forecast, goals,
         graph_traversal, memos, merchants, net_worth, qa,
         recommendations, statements,
     )
@@ -82,7 +82,7 @@ def build_app() -> FastAPI:
     app.include_router(recommendations.router)
     app.include_router(budgets.router)
     app.include_router(decisions.router)
-    app.include_router(graph.router)
+    # graph.router (Kuzu JSONL snapshot) removed in PR 4.3 — see graph_traversal.
     app.include_router(graph_traversal.router)
     app.include_router(qa.router)
     app.include_router(concept_reviews.router)

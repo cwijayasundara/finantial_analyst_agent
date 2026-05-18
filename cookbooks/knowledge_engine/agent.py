@@ -24,23 +24,14 @@ from langchain_core.tools import tool
 from cookbooks._shared.llm import build_chat_model
 from cookbooks._shared.qa_tools import (
     merge_merchants as _merge_merchants_impl,
-    query_graph as _query_graph_impl,
     read_wiki_page as _read_wiki_page_impl,
 )
 
 _RUBRIC_PATH = Path(__file__).parent / "skills" / "qa-rubric.md"
 
 
-@tool
-def query_graph(cypher: str) -> dict:
-    """Run a read-only Cypher query against the compiled Kuzu graph.
-
-    The graph uses a single `Entity` node table with a `type` property
-    ('Merchant', 'Statement', 'Account', 'Category', 'Transaction',
-    'Subscription'). Use `MATCH (n:Entity) WHERE n.type='Merchant'` not
-    `MATCH (n:Merchant)`. Mutations are rejected.
-    """
-    return _query_graph_impl(cypher)
+# query_graph (Kuzu) was removed in PR 4.3. Users wanting Cypher should
+# set PFH_QA_AGENT=deepagent to get cypher_read_only against Neo4j.
 
 
 @tool
@@ -70,7 +61,7 @@ def merge_merchants(
     )
 
 
-_READ_TOOLS = [query_graph, read_wiki_page]
+_READ_TOOLS = [read_wiki_page]
 _WRITE_TOOLS = [merge_merchants]
 _ALL_TOOLS = _READ_TOOLS + _WRITE_TOOLS
 

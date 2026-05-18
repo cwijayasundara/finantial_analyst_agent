@@ -19,7 +19,6 @@ from cookbooks._shared.config import load_settings
 from cookbooks._shared.ontology.functions.actions import (
     merge_merchant_aliases as _merge,
 )
-from cookbooks._shared.query import query_graph as _query_graph
 
 _WIKI_DIRS = (
     "merchants", "statements", "categories", "accounts",
@@ -29,13 +28,15 @@ _WIKI_DIRS = (
 
 
 def query_graph(cypher: str) -> dict[str, Any]:
-    """Read-only Cypher over the compiled Kuzu graph.
+    """Stub — Kuzu was removed in PR 4.3.
 
-    Returns: `{"rows": list[dict], "row_count": int}`. Rejects any
-    mutation (CREATE/MERGE/DELETE/SET/DROP/ALTER); caps row count.
+    The deepagent path (PFH_QA_AGENT=deepagent) uses cypher_read_only
+    against Neo4j directly. The legacy agent loses this tool.
     """
-    rows = _query_graph(cypher)
-    return {"rows": rows, "row_count": len(rows)}
+    raise RuntimeError(
+        "query_graph (Kuzu) removed in PR 4.3. Set PFH_QA_AGENT=deepagent "
+        "to use cypher_read_only against Neo4j instead."
+    )
 
 
 def read_wiki_page(page_id: str) -> dict[str, Any]:

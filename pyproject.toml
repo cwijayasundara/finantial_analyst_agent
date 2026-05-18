@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-graph = ["kuzu>=0.11", "networkx>=3.6", "pyvis>=0.3"]
+graph = ["networkx>=3.6", "pyvis>=0.3"]
 remote = ["langchain-openai>=1.2"]
 web = ["fastapi>=0.115", "uvicorn>=0.32", "sse-starlette>=2.1", "httpx>=0.28"]
 dev = [
@@ -59,7 +59,6 @@ asyncio_mode = "auto"
 addopts = "-q --strict-markers"
 markers = [
     "integration: hits real Ollama or real PDFs (skip by default)",
-    "needs_kuzu: requires the kuzu package",
     "eval: regression eval suites (deterministic; LLM judge optional)",
 ]
 

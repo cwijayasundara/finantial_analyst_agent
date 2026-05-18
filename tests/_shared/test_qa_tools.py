@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from cookbooks._shared.compile_graph import compile_graph
 from cookbooks._shared.db import init_schema
 from cookbooks._shared.ontology.functions.actions import (
     publish_monthly_memo,
@@ -12,7 +11,6 @@ from cookbooks._shared.ontology.functions.actions import (
 )
 from cookbooks._shared.qa_tools import (
     merge_merchants,
-    query_graph,
     read_wiki_page,
 )
 
@@ -33,22 +31,14 @@ def populated_workspace(tmp_workspace: Path):
         body_md="# April 2025\n\nSpent £42.00 at [[merchant_costa]].\n",
         citations=["merchant_costa"], confidence=0.9,
     )
-    compile_graph()
+    # compile_graph() removed in PR 4.3 — wiki population is enough for
+    # these tests; the deepagent path uses cypher_read_only against Neo4j
+    # which has its own dedicated tests.
     return tmp_workspace
 
 
-class TestQueryGraph:
-    def test_returns_rows(self, populated_workspace):
-        out = query_graph(
-            "MATCH (m:Entity) WHERE m.type='Merchant' RETURN m.id LIMIT 10"
-        )
-        assert out["row_count"] >= 2
-        assert isinstance(out["rows"], list)
-
-    def test_rejects_writes(self):
-        from cookbooks._shared.query import QueryRejectedError
-        with pytest.raises(QueryRejectedError):
-            query_graph("MATCH (n) DELETE n")
+# TestQueryGraph removed in PR 4.3 — the Kuzu query_graph @tool is gone.
+# Cypher-against-Neo4j coverage lives in tests/_shared/tools/test_cypher_tools.py.
 
 
 class TestReadWikiPage:
