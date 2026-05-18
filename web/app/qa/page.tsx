@@ -6,6 +6,56 @@ import { api } from "@/lib/api";
 import { renderInline } from "@/lib/wikilinks";
 
 type ToolCall = { name: string; args: unknown };
+
+function NodeLink({ id, label }: { id: string; label?: string }) {
+  // Surface any node id from a tool call as a click-through to /graph/[id].
+  const href = `/graph/${encodeURIComponent(id)}`;
+  return (
+    <a href={href} className="underline decoration-dotted hover:decoration-solid">
+      🔍 {label ?? id}
+    </a>
+  );
+}
+
+// Walk an arbitrary tool-call value; return the list of {id, label?} pairs
+// we should surface as click-throughs. Conservative — only surfaces strings
+// that look like node ids (contain `::`).
+function extractNodeRefs(value: unknown): { id: string; label?: string }[] {
+  const out: { id: string; label?: string }[] = [];
+  const visit = (v: unknown) => {
+    if (v == null) return;
+    if (typeof v === "string") {
+      if (v.includes("::")) out.push({ id: v });
+      return;
+    }
+    if (Array.isArray(v)) {
+      v.forEach(visit);
+      return;
+    }
+    if (typeof v === "object") {
+      const obj = v as Record<string, unknown>;
+      if (typeof obj.id === "string" && obj.id.includes("::")) {
+        const label =
+          typeof obj.canonical_name === "string"
+            ? obj.canonical_name
+            : typeof obj.name === "string"
+              ? obj.name
+              : undefined;
+        out.push({ id: obj.id, label });
+        return;
+      }
+      Object.values(obj).forEach(visit);
+    }
+  };
+  visit(value);
+  const seen = new Set<string>();
+  return out.filter((r) => {
+    if (seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+}
+
 type Turn = {
   question: string;
   answer?: string;
@@ -78,9 +128,21 @@ export default function QAPage() {
               <details className="mt-2 text-xs">
                 <summary className="cursor-pointer opacity-60">{t.toolCalls.length} tool call(s)</summary>
                 <ul className="mt-1 font-mono space-y-1">
-                  {t.toolCalls.map((tc, j) => (
-                    <li key={j}>{tc.name}({JSON.stringify(tc.args).slice(0, 120)})</li>
-                  ))}
+                  {t.toolCalls.map((tc, j) => {
+                    const refs = extractNodeRefs(tc.args);
+                    return (
+                      <li key={j}>
+                        <div>{tc.name}({JSON.stringify(tc.args).slice(0, 120)})</div>
+                        {refs.length > 0 && (
+                          <div className="mt-1 flex gap-2 flex-wrap">
+                            {refs.map((r) => (
+                              <NodeLink key={r.id} id={r.id} label={r.label} />
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </details>
             )}

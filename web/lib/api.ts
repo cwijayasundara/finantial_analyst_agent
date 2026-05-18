@@ -1,3 +1,9 @@
+import type {
+  GraphNode,
+  Subgraph,
+  Transaction as GraphTransaction,
+} from "./api-graph";
+
 const BASE =
   typeof window === "undefined"
     ? `http://${process.env.PFH_API_HOST ?? "127.0.0.1"}:${process.env.PFH_API_PORT ?? "8000"}`
@@ -75,6 +81,15 @@ export const api = {
       const tail = qs.toString() ? `?${qs}` : "";
       return get<GraphSnapshot>(`/api/graph/snapshot${tail}`);
     },
+    // New Neo4j-backed helpers — see web/lib/api-graph.ts for typed shapes.
+    node: (nodeId: string) =>
+      get<GraphNode | null>(`/api/graph/node/${encodeURI(nodeId)}`).catch(
+        (e: Error) => (e.message.includes("→ 404") ? null : Promise.reject(e)),
+      ),
+    neighbors: (nodeId: string, depth: number = 1) =>
+      get<Subgraph>(`/api/graph/neighbors/${encodeURI(nodeId)}?depth=${depth}`),
+    evidence: (nodeId: string, k: number = 10) =>
+      get<GraphTransaction[]>(`/api/graph/evidence/${encodeURI(nodeId)}?k=${k}`),
   },
   qa: {
     askSync: (question: string) =>
