@@ -58,3 +58,6 @@ web/.vite/
 docker/.env
 db/postgres/migrations/__pycache__/
 *.duckdb.wal
+
+# Next.js build cache
+web/tsconfig.tsbuildinfo
