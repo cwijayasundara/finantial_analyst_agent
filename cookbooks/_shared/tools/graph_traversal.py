@@ -76,3 +76,26 @@ RETURN nodes, edges
     if rec is None:
         return {"nodes": [], "edges": []}
     return {"nodes": rec["nodes"], "edges": rec["edges"]}
+
+
+@tool
+def get_node(node_id: str) -> dict | None:
+    """Return the single node with the given id, or None if not found.
+
+    Returns ``{id, label, properties}`` — label is the first/primary label.
+    """
+    with session(read_only=True) as s:
+        result = s.run(
+            "MATCH (n {id: $id}) RETURN n, labels(n) AS labels LIMIT 1",
+            {"id": node_id},
+        )
+        rec = result.single()
+    if rec is None:
+        return None
+    node = rec["n"]
+    labels = rec["labels"]
+    return {
+        "id": node_id,
+        "label": labels[0] if labels else None,
+        "properties": dict(node),
+    }
